@@ -1,34 +1,103 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
+use std::fs::File;
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use syn::{parse_macro_input, FnArg, ItemFn};
+use syn::parse::{Parse, ParseStream};
+use syn::punctuated::Punctuated;
+use syn::token::Paren;
+use syn::{
+    parenthesized, parse_macro_input, Block, FnArg, Ident, Pat, ReturnType, Token, Type, Visibility,
+};
 use uuid::Uuid;
 
-pub(super) fn remote_fn_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let item2 = parse_macro_input!(item as ItemFn);
-    let full = item2.clone();
-    let vis = item2.vis;
-    let ident = item2.sig.ident;
-    let ident_local = format_ident!("__local_{}", ident);
-    let inputs = item2.sig.inputs;
-    let mut args = Vec::new();
-    for input in &inputs {
-        let arg = match input {
-            FnArg::Typed(arg) => arg.pat.clone(),
-            _ => panic!("Oh no!"),
-        };
-        args.push(arg)
-    }
-    let output = item2.sig.output;
-    let body = item2.block;
+// TODO handle asyncness
+#[derive(Debug)]
+struct GwasmFn {
+    vis: Visibility,
+    fn_token: Token![fn],
+    ident: Ident,
+    paren_token: Paren,
+    args: Punctuated<FnArg, Token![,]>,
+    ret: ReturnType,
+    body: Box<Block>,
+}
 
-    // let run_id = Uuid::new_v4();
-    let run_id = "_wasm";
-    // TODO here goes the Golem connector logic
-    let hmm = format!("{}", run_id);
-    let golem_res = quote! {
-        #vis fn #ident(#inputs) #output {
+impl Parse for GwasmFn {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let content;
+        Ok(GwasmFn {
+            vis: input.parse()?,
+            fn_token: input.parse()?,
+            ident: input.parse()?,
+            paren_token: parenthesized!(content in input),
+            args: content.parse_terminated(FnArg::parse)?,
+            ret: input.parse()?,
+            body: input.parse()?,
+        })
+    }
+}
+
+fn validate_arg_type(ty: &Type) -> bool {
+    match ty {
+        Type::Array(arr) => validate_arg_type(&arr.elem),
+        Type::Slice(slice) => validate_arg_type(&slice.elem),
+        Type::Reference(r#ref) => validate_arg_type(&r#ref.elem),
+        Type::Path(path) => {
+            let path = &path.path;
+            if let Some(ident) = path.get_ident() {
+                ident.to_string() == "u8"
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+fn validate_extract_args(input: impl IntoIterator<Item = FnArg>) -> Vec<(Box<Pat>, Box<Type>)> {
+    let mut args = vec![];
+    for arg in input {
+        let (pat, ty) = match arg {
+            FnArg::Typed(arg) => {
+                if arg.attrs.len() > 0 {
+                    panic!("attributes around fn args are unsupported");
+                }
+                let pat = arg.pat;
+                let ty = arg.ty;
+                if !validate_arg_type(&ty) {
+                    panic!("unsupported argument type");
+                }
+                (pat, ty)
+            }
+            _ => panic!("self params are unsupported"),
+        };
+        args.push((pat, ty));
+    }
+    args
+}
+
+// TODO parse optional datadir, host ip, port and net from attributes
+pub(super) fn remote_fn_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let preserved_item: proc_macro2::TokenStream = item.clone().into();
+    let item = parse_macro_input!(item as GwasmFn);
+    // Validate and extract arguments
+    let args = validate_extract_args(item.args.iter().map(|x| x.clone()));
+    // Expand into gWasm connector code
+    let run_id = Uuid::new_v4();
+    let run_id_str = format!("{}", run_id);
+    let fn_vis = item.vis;
+    let fn_ident = item.ident;
+    let fn_args = item.args;
+    let fn_ret = item.ret;
+    let mut subtasks = vec![];
+    for (pat, _) in &args {
+        let ts = quote!(.push_subtask_data(Vec::from(#pat)));
+        subtasks.push(ts);
+    }
+    let output = quote! {
+        #fn_vis fn #fn_ident(#fn_args) #fn_ret {
             use gwasm_api::prelude::*;
             use std::fs;
             use std::path::Path;
@@ -37,19 +106,17 @@ pub(super) fn remote_fn_impl(_attr: TokenStream, item: TokenStream) -> TokenStre
             struct ProgressTracker;
 
             impl ProgressUpdate for ProgressTracker {
-                fn update(&mut self, progress: f64) {
-                    println!("Current progress = {}", progress)
-                }
+                fn update(&mut self, _progress: f64) {}
             }
 
-            let js = fs::read(format!("target/debug/{}.js", #hmm)).unwrap();
-            let wasm = fs::read(format!("target/debug/{}.wasm", #hmm)).unwrap();
+            let js = fs::read(format!("target/debug/{}.js", #run_id_str)).unwrap();
+            let wasm = fs::read(format!("target/debug/{}.wasm", #run_id_str)).unwrap();
             let binary = GWasmBinary {
                 js: &js,
                 wasm: &wasm,
             };
             let task = TaskBuilder::new("/Users/kubkon/dev/cuddly-jumpers/workspace", binary)
-                .push_subtask_data(r#in.to_vec())
+                #(#subtasks)*
                 .build()
                 .unwrap();
             let computed_task = compute(
@@ -68,19 +135,26 @@ pub(super) fn remote_fn_impl(_attr: TokenStream, item: TokenStream) -> TokenStre
                     reader.read_to_end(&mut out).unwrap();
                 }
             }
-
             out
         }
     };
-    // TODO here goes the local version of the function;
-    // so blatant copy-paste
-    let res = quote! {
-        #vis fn #ident_local(#inputs) #output
-            #body
-    };
-    // TODO here goes the actual contents of the function
+
+    // TODO here goes the actual contents of the Wasm module
+    let mut inputs = vec![];
+    let mut input_args = vec![];
+    for i in 0..args.len() {
+        let in_ident = format_ident!("in{}", i);
+        let ts = quote! {
+            let next_arg = args.pop().unwrap();
+            let mut f = File::open(next_arg).unwrap();
+            let mut #in_ident = Vec::new();
+            f.read_to_end(&mut #in_ident).unwrap();
+        };
+        inputs.push(ts);
+        input_args.push(quote!(&#in_ident));
+    }
     let contents = quote! {
-        #full
+        #preserved_item
 
         fn main() {
             use std::fs::File;
@@ -89,14 +163,9 @@ pub(super) fn remote_fn_impl(_attr: TokenStream, item: TokenStream) -> TokenStre
 
             let mut args: Vec<_> = env::args().collect();
             let out = args.pop().unwrap();
-            let r#in = args.pop().unwrap();
+            #(#inputs)*
 
-            let mut f = File::open(r#in).unwrap();
-            let mut arg = Vec::new();
-            f.read_to_end(&mut arg).unwrap();
-            println!("{:?}", arg);
-
-            let res = #ident(&arg);
+            let res = #fn_ident(#(#input_args)*);
 
             let mut f = File::create(out).unwrap();
             f.write_all(&res).unwrap();
@@ -104,9 +173,9 @@ pub(super) fn remote_fn_impl(_attr: TokenStream, item: TokenStream) -> TokenStre
     };
 
     // push body of the function into a Wasm module
-    let out_dir = std::path::PathBuf::from("target/debug");
-    let wasm_rs = std::path::PathBuf::from(format!("{}.rs", run_id));
-    let mut out = std::fs::File::create(out_dir.join(&wasm_rs)).expect("generating Wasm src file");
+    let out_dir = PathBuf::from("target/debug");
+    let wasm_rs = PathBuf::from(format!("{}.rs", run_id));
+    let mut out = File::create(out_dir.join(&wasm_rs)).expect("generating Wasm src file");
     writeln!(out, "{}", contents).unwrap();
 
     // compile to gWasm
@@ -118,67 +187,7 @@ pub(super) fn remote_fn_impl(_attr: TokenStream, item: TokenStream) -> TokenStre
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .current_dir("target/debug");
-    let output = cmd.output().unwrap();
+    let _cmd_output = cmd.output().unwrap();
 
-    golem_res.into()
-}
-
-trait Render {
-    fn render(&self) -> String;
-}
-
-impl Render for proc_macro2::Punct {
-    fn render(&self) -> String {
-        let mut out = self.to_string();
-        if let proc_macro2::Spacing::Alone = self.spacing() {
-            out += " ";
-        }
-        out
-    }
-}
-
-impl Render for proc_macro2::Group {
-    fn render(&self) -> String {
-        let (delim_open, delim_close) = match self.delimiter() {
-            proc_macro2::Delimiter::Brace => ("{", "}"),
-            proc_macro2::Delimiter::Parenthesis => ("(", ")"),
-            proc_macro2::Delimiter::Bracket => ("[", "]"),
-            _ => unimplemented!("Delimiter::None"),
-        };
-        let inner = self.stream().render();
-        format!("{}{}{}", delim_open, inner, delim_close)
-    }
-}
-
-impl Render for proc_macro2::Ident {
-    fn render(&self) -> String {
-        format!("{} ", self)
-    }
-}
-
-impl Render for proc_macro2::Literal {
-    fn render(&self) -> String {
-        format!("{} ", self)
-    }
-}
-
-impl Render for proc_macro2::TokenTree {
-    fn render(&self) -> String {
-        match self {
-            Self::Group(p) => p.render(),
-            Self::Punct(p) => p.render(),
-            Self::Ident(p) => p.render(),
-            Self::Literal(p) => p.render(),
-        }
-    }
-}
-
-impl Render for proc_macro2::TokenStream {
-    fn render(&self) -> String {
-        let mut out = String::new();
-        for tt in self.clone().into_iter() {
-            out += &tt.render();
-        }
-        out
-    }
+    output.into()
 }
