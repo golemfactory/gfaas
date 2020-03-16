@@ -8,7 +8,8 @@ use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::token::Paren;
 use syn::{
-    parenthesized, parse_macro_input, Block, FnArg, Ident, Pat, ReturnType, Token, Type, Visibility,
+    parenthesized, parse_macro_input, Block, ExprLit, FnArg, Ident, Lit, Pat, ReturnType, Token,
+    Type, Visibility,
 };
 use uuid::Uuid;
 
@@ -78,8 +79,90 @@ fn validate_extract_args(input: impl IntoIterator<Item = FnArg>) -> Vec<(Box<Pat
     args
 }
 
+#[derive(Debug)]
+struct GwasmAttr {
+    ident: Ident,
+    eq_token: Token![=],
+    value: ExprLit,
+}
+
+impl Parse for GwasmAttr {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(GwasmAttr {
+            ident: input.parse()?,
+            eq_token: input.parse()?,
+            value: input.parse()?,
+        })
+    }
+}
+
+#[derive(Debug)]
+struct GwasmAttrs(Punctuated<GwasmAttr, Token![,]>);
+
+impl Parse for GwasmAttrs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(GwasmAttrs(input.parse_terminated(GwasmAttr::parse)?))
+    }
+}
+
+#[derive(Debug, Default)]
+struct GwasmParams {
+    datadir: Option<String>,
+    rpc_address: Option<String>,
+    rpc_port: Option<u16>,
+    net: Option<String>,
+}
+
 // TODO parse optional datadir, host ip, port and net from attributes
-pub(super) fn remote_fn_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub(super) fn remote_fn_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
+    // Parse attributes
+    let attrs = parse_macro_input!(attr as GwasmAttrs);
+    let mut params = GwasmParams::default();
+    for attr in attrs.0.into_iter() {
+        let attr_str = attr.ident.to_string();
+        match attr_str.as_str() {
+            "datadir" => {
+                let lit = attr.value.lit;
+                match lit {
+                    Lit::Str(s) => params.datadir.replace(s.value()),
+                    x => panic!("invalid attribute value '{:#?}'", x),
+                };
+            }
+            "rpc_address" => {
+                let lit = attr.value.lit;
+                match lit {
+                    Lit::Str(s) => params.rpc_address.replace(s.value()),
+                    x => panic!("invalid attribute value '{:#?}'", x),
+                };
+            }
+            "rpc_port" => {
+                let lit = attr.value.lit;
+                match lit {
+                    Lit::Str(s) => params
+                        .rpc_port
+                        .replace(s.value().parse().expect("correct value")),
+                    Lit::Int(i) => params
+                        .rpc_port
+                        .replace(i.base10_parse().expect("correct value")),
+                    x => panic!("invalid attribute value '{:#?}'", x),
+                };
+            }
+            "net" => {
+                let lit = attr.value.lit;
+                match lit {
+                    Lit::Str(s) => match s.value().to_lowercase().as_str() {
+                        "testnet" => params.net.replace("testnet".to_string()),
+                        "mainnet" => params.net.replace("mainnet".to_string()),
+                        x => panic!("invalid attribute value '{}'", x),
+                    },
+                    x => panic!("invalid attribute value '{:#?}'", x),
+                };
+            }
+            x => panic!("unexpected attribute '{}'", x),
+        }
+    }
+
+    // Parse body
     let preserved_item: proc_macro2::TokenStream = item.clone().into();
     let item = parse_macro_input!(item as GwasmFn);
     // Validate and extract arguments
@@ -96,6 +179,12 @@ pub(super) fn remote_fn_impl(_attr: TokenStream, item: TokenStream) -> TokenStre
         let ts = quote!(.push_subtask_data(Vec::from(#pat)));
         subtasks.push(ts);
     }
+    let datadir = params
+        .datadir
+        .unwrap_or("/Users/kubkon/Library/Application Support/golem/default".to_string());
+    let rpc_address = params.rpc_address.unwrap_or("127.0.0.1".to_string());
+    let rpc_port = params.rpc_port.unwrap_or(61000);
+    let net = params.net.unwrap_or("testnet".to_string());
     let output = quote! {
         #fn_vis fn #fn_ident(#fn_args) #fn_ret {
             use gwasm_api::prelude::*;
@@ -120,10 +209,14 @@ pub(super) fn remote_fn_impl(_attr: TokenStream, item: TokenStream) -> TokenStre
                 .build()
                 .unwrap();
             let computed_task = compute(
-                Path::new("/Users/kubkon/dev/datadir0"),
-                "127.0.0.1",
-                61000,
-                Net::TestNet,
+                Path::new(#datadir),
+                #rpc_address,
+                #rpc_port,
+                match #net {
+                    "testnet" => Net::TestNet,
+                    "mainnet" => Net::MainNet,
+                    _ => unreachable!(),
+                },
                 task,
                 ProgressTracker,
             )
@@ -165,7 +258,7 @@ pub(super) fn remote_fn_impl(_attr: TokenStream, item: TokenStream) -> TokenStre
             let out = args.pop().unwrap();
             #(#inputs)*
 
-            let res = #fn_ident(#(#input_args)*);
+            let res = #fn_ident(#(#input_args),*);
 
             let mut f = File::create(out).unwrap();
             f.write_all(&res).unwrap();
