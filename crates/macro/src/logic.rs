@@ -1,21 +1,19 @@
-use proc_macro::TokenStream;
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use std::env;
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::path::{Path, PathBuf};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::token::Paren;
 use syn::{
-    parenthesized, parse_macro_input, Block, ExprLit, FnArg, Ident, Lit, Pat, ReturnType, Token,
-    Type, Visibility,
+    parenthesized, Block, ExprLit, FnArg, Ident, Lit, Pat, ReturnType, Token, Type, Visibility,
 };
-use uuid::Uuid;
 
 // TODO handle asyncness
 #[derive(Debug)]
-struct GwasmFn {
+pub struct GwasmFn {
     vis: Visibility,
     fn_token: Token![fn],
     ident: Ident,
@@ -80,7 +78,7 @@ fn validate_extract_args(input: impl IntoIterator<Item = FnArg>) -> Vec<(Box<Pat
 }
 
 #[derive(Debug)]
-struct GwasmAttr {
+pub struct GwasmAttr {
     ident: Ident,
     eq_token: Token![=],
     value: ExprLit,
@@ -97,7 +95,7 @@ impl Parse for GwasmAttr {
 }
 
 #[derive(Debug)]
-struct GwasmAttrs(Punctuated<GwasmAttr, Token![,]>);
+pub struct GwasmAttrs(Punctuated<GwasmAttr, Token![,]>);
 
 impl Parse for GwasmAttrs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
@@ -114,9 +112,8 @@ struct GwasmParams {
 }
 
 // TODO parse optional datadir, host ip, port and net from attributes
-pub(super) fn remote_fn_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStream) -> TokenStream {
     // Parse attributes
-    let attrs = parse_macro_input!(attr as GwasmAttrs);
     let mut params = GwasmParams::default();
     for attr in attrs.0.into_iter() {
         let attr_str = attr.ident.to_string();
@@ -162,20 +159,16 @@ pub(super) fn remote_fn_impl(attr: TokenStream, item: TokenStream) -> TokenStrea
         }
     }
 
-    // Parse body
-    let preserved_item: proc_macro2::TokenStream = item.clone().into();
-    let item = parse_macro_input!(item as GwasmFn);
     // Validate and extract arguments
-    let args = validate_extract_args(item.args.iter().map(|x| x.clone()));
+    let args = validate_extract_args(f.args.iter().map(|x| x.clone()));
     // Expand into gWasm connector code
     // TODO this could potentially be unsafe (passing strings like this).
     // Perhaps this could be weeded out with a custom cargo-gaas tool.
-    let run_id = Uuid::new_v4();
-    let run_id_str = format!("{}", run_id);
-    let fn_vis = item.vis;
-    let fn_ident = item.ident;
-    let fn_args = item.args;
-    let fn_ret = item.ret;
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR should be defined");
+    let fn_vis = f.vis;
+    let fn_ident = f.ident;
+    let fn_args = f.args;
+    let fn_ret = f.ret;
     let mut subtasks = vec![];
     for (pat, _) in &args {
         let ts = quote!(.push_subtask_data(Vec::from(#pat)));
@@ -194,37 +187,8 @@ pub(super) fn remote_fn_impl(attr: TokenStream, item: TokenStream) -> TokenStrea
     let net = params.net.unwrap_or("testnet".to_string());
     let output = quote! {
         #fn_vis fn #fn_ident(#fn_args) #fn_ret {
-            mod temp_dir {
-                use std::path::{Path, PathBuf};
-                use std::env;
-                use std::fs;
-                use std::io::ErrorKind;
-
-                pub(super) struct TempDir {
-                    tmp_path: PathBuf,
-                }
-
-                impl TempDir {
-                    pub fn new() -> Self {
-                        let mut tmp_path = env::temp_dir();
-                        tmp_path.push(["remote_fn", &#run_id_str].join("_"));
-                        fs::create_dir(&tmp_path).expect("could create temp dir");
-                        Self { tmp_path }
-                    }
-
-                    pub fn path(&self) -> &Path {
-                        &self.tmp_path
-                    }
-                }
-
-                impl Drop for TempDir {
-                    fn drop(&mut self) {
-                        let _ = fs::remove_dir_all(&self.tmp_path);
-                    }
-                }
-            }
-
-            use gwasm_api::prelude::*;
+            use gfaas::__private::gwasm_api::prelude::*;
+            use gfaas::__private::tempfile::tempdir;
             use std::fs;
             use std::path::Path;
             use std::io::Read;
@@ -235,9 +199,9 @@ pub(super) fn remote_fn_impl(attr: TokenStream, item: TokenStream) -> TokenStrea
                 fn update(&mut self, _progress: f64) {}
             }
 
-            let workspace = temp_dir::TempDir::new();
-            let js = fs::read(format!("target/debug/{}.js", #run_id_str)).unwrap();
-            let wasm = fs::read(format!("target/debug/{}.wasm", #run_id_str)).unwrap();
+            let workspace = tempdir().expect("could create a temp directory");
+            let js = fs::read(Path::new(#out_dir).join("gfaas.js")).unwrap();
+            let wasm = fs::read(Path::new(#out_dir).join("gfaas.wasm")).unwrap();
             let binary = GWasmBinary {
                 js: &js,
                 wasm: &wasm,
@@ -285,7 +249,7 @@ pub(super) fn remote_fn_impl(attr: TokenStream, item: TokenStream) -> TokenStrea
         input_args.push(quote!(&#in_ident));
     }
     let contents = quote! {
-        #preserved_item
+        #preserved
 
         fn main() {
             use std::fs::File;
@@ -304,21 +268,10 @@ pub(super) fn remote_fn_impl(attr: TokenStream, item: TokenStream) -> TokenStrea
     };
 
     // push body of the function into a Wasm module
-    let out_dir = PathBuf::from("target/debug");
-    let wasm_rs = PathBuf::from(format!("{}.rs", run_id));
-    let mut out = File::create(out_dir.join(&wasm_rs)).expect("generating Wasm src file");
+    let wasm_rs = PathBuf::from(format!("{}.rs", "wasm"));
+    let mut out =
+        File::create(Path::new(&out_dir).join(&wasm_rs)).expect("generating Wasm src file");
     writeln!(out, "{}", contents).unwrap();
 
-    // compile to gWasm
-    let mut cmd = Command::new("rustc");
-    cmd.arg("+1.38.0")
-        .arg("--target=wasm32-unknown-emscripten")
-        .arg(&wasm_rs)
-        .envs(std::env::vars())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .current_dir("target/debug");
-    let _cmd_output = cmd.output().unwrap();
-
-    output.into()
+    output
 }

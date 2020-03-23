@@ -1,5 +1,5 @@
 [package]
-name = "remote-fn"
+name = "gfaas-macro"
 version = "0.1.0"
 authors = ["Jakub Konka <jakub.konka@golem.network>"]
 edition = "2018"
@@ -8,8 +8,7 @@ edition = "2018"
 proc-macro = true
 
 [dependencies]
-syn = { version = "1.0", features = ["full"] }
+syn = { version = "1.0", features = ["full", "extra-traits"] }
 proc-macro2 = "1.0"
 quote = "1.0"
-uuid = { version = "0.8", features = ["v4"] }
 appdirs = "0.2"

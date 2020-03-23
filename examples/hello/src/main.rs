@@ -1,4 +1,4 @@
-use remote_fn::remote_fn;
+use gfaas::remote_fn;
 
 #[remote_fn(
     datadir = "/Users/kubkon/dev/datadir0",

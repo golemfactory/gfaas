@@ -1,13 +1,13 @@
 [package]
-name = "cuddly-jumpers"
+name = "gfaas"
 version = "0.1.0"
 authors = ["Jakub Konka <jakub.konka@golem.network>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-remote-fn = { path = "crates/remote-fn" }
-gwasm-api = "0.1.1"
+gfaas-macro = { path = "crates/macro" }
+gwasm-api = "0.1"
+tempfile = "3.1"
 
 [workspace]
+members = ["crates/cli"]
