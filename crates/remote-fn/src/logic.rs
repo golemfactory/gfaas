@@ -187,6 +187,36 @@ pub(super) fn remote_fn_impl(attr: TokenStream, item: TokenStream) -> TokenStrea
     let net = params.net.unwrap_or("testnet".to_string());
     let output = quote! {
         #fn_vis fn #fn_ident(#fn_args) #fn_ret {
+            mod temp_dir {
+                use std::path::{Path, PathBuf};
+                use std::env;
+                use std::fs;
+                use std::io::ErrorKind;
+
+                pub(super) struct TempDir {
+                    tmp_path: PathBuf,
+                }
+
+                impl TempDir {
+                    pub fn new() -> Self {
+                        let mut tmp_path = env::temp_dir();
+                        tmp_path.push(["remote_fn", &#run_id_str].join("_"));
+                        fs::create_dir(&tmp_path).expect("could create temp dir");
+                        Self { tmp_path }
+                    }
+
+                    pub fn path(&self) -> &Path {
+                        &self.tmp_path
+                    }
+                }
+
+                impl Drop for TempDir {
+                    fn drop(&mut self) {
+                        let _ = fs::remove_dir_all(&self.tmp_path);
+                    }
+                }
+            }
+
             use gwasm_api::prelude::*;
             use std::fs;
             use std::path::Path;
@@ -198,13 +228,14 @@ pub(super) fn remote_fn_impl(attr: TokenStream, item: TokenStream) -> TokenStrea
                 fn update(&mut self, _progress: f64) {}
             }
 
+            let workspace = temp_dir::TempDir::new();
             let js = fs::read(format!("target/debug/{}.js", #run_id_str)).unwrap();
             let wasm = fs::read(format!("target/debug/{}.wasm", #run_id_str)).unwrap();
             let binary = GWasmBinary {
                 js: &js,
                 wasm: &wasm,
             };
-            let task = TaskBuilder::new("/Users/kubkon/dev/cuddly-jumpers/workspace", binary)
+            let task = TaskBuilder::new(workspace.path(), binary)
                 #(#subtasks)*
                 .build()
                 .unwrap();
