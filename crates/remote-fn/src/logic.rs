@@ -168,6 +168,8 @@ pub(super) fn remote_fn_impl(attr: TokenStream, item: TokenStream) -> TokenStrea
     // Validate and extract arguments
     let args = validate_extract_args(item.args.iter().map(|x| x.clone()));
     // Expand into gWasm connector code
+    // TODO this could potentially be unsafe (passing strings like this).
+    // Perhaps this could be weeded out with a custom cargo-gaas tool.
     let run_id = Uuid::new_v4();
     let run_id_str = format!("{}", run_id);
     let fn_vis = item.vis;
@@ -179,9 +181,14 @@ pub(super) fn remote_fn_impl(attr: TokenStream, item: TokenStream) -> TokenStrea
         let ts = quote!(.push_subtask_data(Vec::from(#pat)));
         subtasks.push(ts);
     }
-    let datadir = params
-        .datadir
-        .unwrap_or("/Users/kubkon/Library/Application Support/golem/default".to_string());
+    let datadir = params.datadir.unwrap_or_else(|| {
+        appdirs::user_data_dir(Some("golem"), Some("golem"), false)
+            .expect("existing project app datadirs")
+            .join("default")
+            .to_str()
+            .expect("valid Unicode path")
+            .to_owned()
+    });
     let rpc_address = params.rpc_address.unwrap_or("127.0.0.1".to_string());
     let rpc_port = params.rpc_port.unwrap_or(61000);
     let net = params.net.unwrap_or("testnet".to_string());
