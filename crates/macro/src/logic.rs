@@ -269,6 +269,8 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     };
 
     // push body of the function into a Wasm module
+    // TODO names should really be randomly generated to avoid potential
+    // collisions within the same project (multiple remote fns anyone?).
     let mut out = File::create(Path::new(&out_dir).join("gfaas.rs")).unwrap_or_else(|_| {
         panic!(
             "generating Wasm src file {}",
