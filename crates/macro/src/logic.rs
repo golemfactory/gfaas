@@ -3,7 +3,7 @@ use quote::{format_ident, quote};
 use std::env;
 use std::fs::File;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::token::Paren;
@@ -164,7 +164,6 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     // Expand into gWasm connector code
     // TODO this could potentially be unsafe (passing strings like this).
     // Perhaps this could be weeded out with a custom cargo-gaas tool.
-    let out_dir = env::var("OUT_DIR").expect("OUT_DIR should be defined");
     let fn_vis = f.vis;
     let fn_ident = f.ident;
     let fn_args = f.args;
@@ -185,6 +184,8 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let rpc_address = params.rpc_address.unwrap_or("127.0.0.1".to_string());
     let rpc_port = params.rpc_port.unwrap_or(61000);
     let net = params.net.unwrap_or("testnet".to_string());
+    // Compute out dir
+    let out_dir = env::var("GFAAS_OUT_DIR").expect("GFAAS_OUT_DIR should be defined");
     let output = quote! {
         #fn_vis fn #fn_ident(#fn_args) #fn_ret {
             use gfaas::__private::gwasm_api::prelude::*;
@@ -268,9 +269,12 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     };
 
     // push body of the function into a Wasm module
-    let wasm_rs = PathBuf::from(format!("{}.rs", "wasm"));
-    let mut out =
-        File::create(Path::new(&out_dir).join(&wasm_rs)).expect("generating Wasm src file");
+    let mut out = File::create(Path::new(&out_dir).join("gfaas.rs")).unwrap_or_else(|_| {
+        panic!(
+            "generating Wasm src file {}",
+            [&out_dir, "gfaas.rs"].join("/")
+        )
+    });
     writeln!(out, "{}", contents).unwrap();
 
     output

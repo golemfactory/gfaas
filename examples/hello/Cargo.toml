@@ -5,4 +5,4 @@ authors = ["Jakub Konka <jakub.konka@golem.network>"]
 edition = "2018"
 
 [dependencies]
-gfaas = { path = "../" }
+gfaas = { path = "../../" }
