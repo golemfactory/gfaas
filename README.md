@@ -20,10 +20,10 @@ to break. If they don't, well, that's impossible, isn't it? ;-)
 
 In your `Cargo.toml`, put `gfaas` as your dependency
 
-```
+```toml
 # Cargo.toml
 [dependencies]
-gfaas = { git = "https://github.com/kubkon/cuddly-jumpers" }
+gfaas = { git = "https://github.com/kubkon/gfaas" }
 ```
 
 You can then annotate a function that accepts a byte slice, and
