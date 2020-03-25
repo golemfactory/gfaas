@@ -1,9 +1,18 @@
-# gfaas
+<div align="center">
+  <h1><code>gfaas</code></h1>
+
+  <p>
+    <strong>Function-as-a-Service on top of Golem Network using gWasm platform.</strong>
+  </p>
+</div>
 
 This is an experimental implementation of Function-as-a-Service (FaaS)
 on top of [gWasm] in [Golem Network]. It's currently not-even-alpha-ready
 so use it at your own risk! Or put it another way, things are expected
 to break. If they don't, well, that's impossible, isn't it? ;-)
+
+[gWasm]: https://docs.golem.network/#/Products/gWASM/About
+[Golem Network]: https://golem.network/
 
 ## Usage
 
@@ -22,7 +31,7 @@ returns a byte `Vec` as `gfaas::remote_fn` which will make it gWasm and
 Golem Network ready
 
 ```rust
-#[remote_fn]
+#[gfaas::remote_fn]
 fn compute(r#in: &[u8]) -> Vec<u8> {
     // some logic...
 }
