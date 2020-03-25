@@ -25,7 +25,7 @@ __DISCLAIMER__
 The best way to demonstrate how _gfaas_ is intended to be used is in a simple example app
 (_note_ you can find the full source code of the app in the [examples/hello] directory).
 
-[examples/hello]: examples/hello
+[examples/hello]: https://github.com/kubkon/gfaas/tree/master/examples/hello
 
 In order to start using _gfaas_, you need to add the following dependency to your crate:
 
@@ -35,7 +35,7 @@ gfaas = "0.1"
 
 _Note_ that the `gfaas` is not yet published on [crates.io], so in order to experiment
 with it locally on your machine, you'd need to make `gfaas` a git dependency
-(`gfaas = { git = "https://github.com/kubkon/cuddly-jumpers" }`). This is only temporary
+(`gfaas = { git = "https://github.com/kubkon/gfaas" }`). This is only temporary
 until `gfaas` and all required crates are published on [crates.io], which will obviously
 happen before the beta release.
 
