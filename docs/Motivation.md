@@ -89,7 +89,20 @@ the user shouldn't care about these at all.
 
 ## Behind-the-scenes shenanigans
 
-TODO
+The convenience described above is achieved thanks to power offered by Rust's
+procedural macros. While generally unhygienic, they make things like `gfaas` possible.
+In this particular case, the attribute `#[gfaas::remote_fn]` unwraps into a function
+with the same signature, however, its body substituted with actual Golem client
+connector code (uses `gwasm-api` crate). The original function body, which is meant
+to be executed on the Golem Network, is extracted and cross-compiled to Emscripten
+Wasm behind-the-scenes. This is depicted in the diagram below.
+
+![Behind-the-scenes shenanigans](shenanigans.jpg)
+
+The fact that we cross-compile the function body to Wasm in the background as the
+compilation of the app to native architecture is happening is the reason we use
+a standalone compilation tool `gfaas`. Thanks to this we achieve some sense of
+hygiene when working out all this magic.
 
 ## Benefits
 
