@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 gfaas-macro = { path = "crates/macro" }
-gwasm-api = "0.1"
+gwasm-api = "0.2"
 tempfile = "3.1"
 
 [workspace]

@@ -187,8 +187,9 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     // Compute out dir
     let out_dir = env::var("GFAAS_OUT_DIR").expect("GFAAS_OUT_DIR should be defined");
     let output = quote! {
-        #fn_vis fn #fn_ident(#fn_args) #fn_ret {
+        #fn_vis async fn #fn_ident(#fn_args) #fn_ret {
             use gfaas::__private::gwasm_api::prelude::*;
+            use gfaas::__private::gwasm_api::golem;
             use gfaas::__private::tempfile::tempdir;
             use std::fs;
             use std::path::Path;
@@ -197,7 +198,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
             struct ProgressTracker;
 
             impl ProgressUpdate for ProgressTracker {
-                fn update(&mut self, _progress: f64) {}
+                fn update(&self, _progress: f64) {}
             }
 
             let workspace = tempdir().expect("could create a temp directory");
@@ -211,18 +212,20 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 #(#subtasks)*
                 .build()
                 .unwrap();
-            let computed_task = compute(
+            let computed_task = golem::compute(
                 Path::new(#datadir),
                 #rpc_address,
                 #rpc_port,
+                task,
                 match #net {
                     "testnet" => Net::TestNet,
                     "mainnet" => Net::MainNet,
                     _ => unreachable!(),
                 },
-                task,
                 ProgressTracker,
+                None,
             )
+            .await
             .unwrap();
 
             let mut out = vec![];

@@ -13,8 +13,9 @@ pub fn hello(r#in: &[u8]) -> Vec<u8> {
     s.as_bytes().to_vec()
 }
 
-fn main() {
+#[actix_rt::main]
+async fn main() {
     let r#in = "hey there gwasm";
-    let out = hello(r#in.as_bytes());
+    let out = hello(r#in.as_bytes()).await;
     println!("in: {}, out: {}", r#in, String::from_utf8(out).unwrap());
 }
