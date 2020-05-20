@@ -8,3 +8,4 @@ edition = "2018"
 gfaas = { path = "../../" }
 actix-rt = "1"
 futures = "0.3"
+serde_json = "1"

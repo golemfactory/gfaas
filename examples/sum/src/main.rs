@@ -8,8 +8,9 @@ use futures::stream::{self, StreamExt};
     net = "testnet"
 )]
 fn partial_sum(r#in: &[u8]) -> Vec<u8> {
-    println!("Hit!");
-    Vec::new()
+    let s: Vec<u64> = serde_json::from_slice(r#in).unwrap();
+    let s: u64 = s.into_iter().sum();
+    serde_json::to_vec(&s).unwrap()
 }
 
 #[actix_rt::main]
@@ -18,12 +19,13 @@ async fn main() {
     let input: Vec<_> = input.chunks(10).collect();
     let input = stream::iter(input);
 
-    let output = input.fold(Vec::new(), |mut acc, x| async move {
-        acc.push(partial_sum(&[0,1,2]).await);
-        acc
+    let output = input.fold(0u64, |acc, x| async move {
+        let x = serde_json::to_vec(&x).unwrap();
+        let out: Vec<u8> = partial_sum(&x).await;
+        let out: u64 = serde_json::from_slice(&out).unwrap();
+        acc + out
     });
-    let output: Vec<_> = output.await;
+    let output = output.await;
     println!("{:?}", output);
-
-    // assert_eq!((0..100).sum::<u64>(), output);
+    assert_eq!((0..100).sum::<u64>(), output);
 }
