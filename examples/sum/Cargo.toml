@@ -9,3 +9,6 @@ gfaas = { path = "../../" }
 actix-rt = "1"
 futures = "0.3"
 serde_json = "1"
+
+[gfaas_dependencies]
+serde_json = "1"
