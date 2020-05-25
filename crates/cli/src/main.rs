@@ -1,6 +1,6 @@
-use std::env;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::{env, fs, io};
 use structopt::{clap::AppSettings, StructOpt};
 
 #[derive(Debug, StructOpt)]
@@ -62,6 +62,39 @@ fn build(cwd: &Path, release: bool, args: &Vec<String>) {
         "target/{}",
         if release { "release" } else { "debug" }
     ));
+    // Fetch cargo manifest path for the root project
+    let mut cmd = Command::new("cargo");
+    let cmd_out = cmd.arg("metadata").output().unwrap();
+    let metadata: serde_json::Value = serde_json::from_slice(&cmd_out.stdout).unwrap();
+    let workspace_root = metadata["workspace_root"].as_str().unwrap();
+    // Create cargo package with gfaas funcs
+    let module_path = Path::new(&out_dir).join("gfaas_modules");
+    let bin_path = module_path.join("src").join("bin");
+    if let Err(err) = fs::create_dir_all(&bin_path) {
+        match err.kind() {
+            io::ErrorKind::AlreadyExists => {}
+            _ => panic!("couldn't create gfaas_module dir: {}", err),
+        }
+    }
+    // Parse manifest of the workspace and extract gfaas deps
+    let manifest_path = Path::new(workspace_root).join("Cargo.toml");
+    let contents = fs::read_to_string(&manifest_path).unwrap();
+    let manifest_toml = contents.parse::<toml::Value>().unwrap();
+    let gfaas_deps = manifest_toml["gfaas_dependencies"].as_table().unwrap();
+    let mut gfaas_toml = toml::toml! {
+        [package]
+        name = "gfaas_modules"
+        version = "0.1.0"
+    };
+    gfaas_toml
+        .as_table_mut()
+        .unwrap()
+        .insert("dependencies".to_owned(), gfaas_deps.clone().into());
+    fs::write(
+        module_path.join("Cargo.toml"),
+        toml::to_string(&gfaas_toml).unwrap(),
+    )
+    .unwrap();
     // Run cargo build
     let mut cmd = Command::new("cargo");
     cmd.arg("build")
@@ -80,19 +113,21 @@ fn build(cwd: &Path, release: bool, args: &Vec<String>) {
         cmd.arg("--release");
     }
     let _cmd_out = cmd.output().unwrap();
-    // Next, run cargo rustc --target=wasm32-unknown-emscripten on marked
-    // files.
-    let mut cmd = Command::new("rustc");
+    // Next, run cargo build --target=wasm32-unknown-emscripten on gfaas_modules
+    // crate.
+    let mut cmd = Command::new("cargo");
     cmd.arg("+1.38.0")
+        .arg("install")
         .arg("--target=wasm32-unknown-emscripten")
-        .arg("gfaas.rs")
+        .arg("--bins")
+        .arg("--force")
+        .arg("--root")
+        .arg(out_dir)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .current_dir(out_dir);
-    if release {
-        cmd.arg("-O");
-    } else {
-        cmd.arg("-g");
+        .current_dir(module_path);
+    if !release {
+        cmd.arg("--debug");
     }
     let _cmd_out = cmd.output().unwrap();
 }

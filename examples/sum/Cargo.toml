@@ -1,14 +1,14 @@
 [package]
-name = "gfaas-cli"
+name = "sum"
 version = "0.1.0"
 authors = ["Jakub Konka <jakub.konka@golem.network>"]
 edition = "2018"
 
-[[bin]]
-path = "src/main.rs"
-name = "gfaas"
-
 [dependencies]
-structopt = "0.3.12"
+gfaas = { path = "../../" }
+actix-rt = "1"
+futures = "0.3"
 serde_json = "1"
-toml = "0.5"
+
+[gfaas_dependencies]
+serde_json = "1"

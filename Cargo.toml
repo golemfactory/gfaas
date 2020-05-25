@@ -12,5 +12,8 @@ tempfile = "3.1"
 [workspace]
 members = [
     "crates/cli",
-    "examples/hello"
+]
+exclude = [
+    "examples/hello",
+    "examples/sum",
 ]

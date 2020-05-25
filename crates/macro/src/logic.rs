@@ -11,7 +11,6 @@ use syn::{
     parenthesized, Block, ExprLit, FnArg, Ident, Lit, Pat, ReturnType, Token, Type, Visibility,
 };
 
-// TODO handle asyncness
 #[derive(Debug)]
 pub struct GwasmFn {
     vis: Visibility,
@@ -168,6 +167,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let fn_ident = f.ident;
     let fn_args = f.args;
     let fn_ret = f.ret;
+
     let mut subtasks = vec![];
     for (pat, _) in &args {
         let ts = quote!(.push_subtask_data(Vec::from(#pat)));
@@ -202,8 +202,8 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
             }
 
             let workspace = tempdir().expect("could create a temp directory");
-            let js = fs::read(Path::new(#out_dir).join("gfaas.js")).unwrap();
-            let wasm = fs::read(Path::new(#out_dir).join("gfaas.wasm")).unwrap();
+            let js = fs::read(Path::new(#out_dir).join("bin").join(format!("{}.js", stringify!(#fn_ident)))).unwrap();
+            let wasm = fs::read(Path::new(#out_dir).join("bin").join(format!("{}.wasm", stringify!(#fn_ident)))).unwrap();
             let binary = GWasmBinary {
                 js: &js,
                 wasm: &wasm,
@@ -272,9 +272,12 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     };
 
     // push body of the function into a Wasm module
-    // TODO names should really be randomly generated to avoid potential
-    // collisions within the same project (multiple remote fns anyone?).
-    let mut out = File::create(Path::new(&out_dir).join("gfaas.rs")).unwrap_or_else(|_| {
+    let out_path = Path::new(&out_dir)
+        .join("gfaas_modules")
+        .join("src")
+        .join("bin")
+        .join(format!("{}.rs", fn_ident.to_string()));
+    let mut out = File::create(out_path).unwrap_or_else(|_| {
         panic!(
             "generating Wasm src file {}",
             [&out_dir, "gfaas.rs"].join("/")
