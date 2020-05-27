@@ -169,7 +169,8 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let fn_ret = f.ret;
 
     let mut subtasks = vec![];
-    for (pat, _) in &args {
+    let args_pats: Vec<_> = args.iter().map(|(pat, _)| pat.clone()).collect();
+    for pat in &args_pats {
         let ts = quote!(.push_subtask_data(Vec::from(#pat)));
         subtasks.push(ts);
     }
@@ -188,53 +189,63 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let out_dir = env::var("GFAAS_OUT_DIR").expect("GFAAS_OUT_DIR should be defined");
     let output = quote! {
         #fn_vis async fn #fn_ident(#fn_args) #fn_ret {
-            use gfaas::__private::gwasm_api::prelude::*;
-            use gfaas::__private::gwasm_api::golem;
-            use gfaas::__private::tempfile::tempdir;
-            use std::fs;
-            use std::path::Path;
-            use std::io::Read;
-
-            struct ProgressTracker;
-
-            impl ProgressUpdate for ProgressTracker {
-                fn update(&self, _progress: f64) {}
+            #[cfg(feature = "local")]
+            fn imp(#fn_args) #fn_ret {
+                Vec::new()
             }
 
-            let workspace = tempdir().expect("could create a temp directory");
-            let js = fs::read(Path::new(#out_dir).join("bin").join(format!("{}.js", stringify!(#fn_ident)))).unwrap();
-            let wasm = fs::read(Path::new(#out_dir).join("bin").join(format!("{}.wasm", stringify!(#fn_ident)))).unwrap();
-            let binary = GWasmBinary {
-                js: &js,
-                wasm: &wasm,
-            };
-            let task = TaskBuilder::new(workspace.path(), binary)
-                #(#subtasks)*
-                .build()
-                .unwrap();
-            let computed_task = golem::compute(
-                Path::new(#datadir),
-                #rpc_address,
-                #rpc_port,
-                task,
-                match #net {
-                    "testnet" => Net::TestNet,
-                    "mainnet" => Net::MainNet,
-                    _ => unreachable!(),
-                },
-                ProgressTracker,
-                None,
-            )
-            .await
-            .unwrap();
+            #[cfg(not(feature = "local"))]
+            fn imp(#fn_args) #fn_ret {
+                use gfaas::__private::gwasm_api::prelude::*;
+                use gfaas::__private::gwasm_api::golem;
+                use gfaas::__private::tempfile::tempdir;
+                use std::fs;
+                use std::path::Path;
+                use std::io::Read;
 
-            let mut out = vec![];
-            for subtask in computed_task.subtasks {
-                for (_, mut reader) in subtask.data {
-                    reader.read_to_end(&mut out).unwrap();
+                struct ProgressTracker;
+
+                impl ProgressUpdate for ProgressTracker {
+                    fn update(&self, _progress: f64) {}
                 }
+
+                let workspace = tempdir().expect("could create a temp directory");
+                let js = fs::read(Path::new(#out_dir).join("bin").join(format!("{}.js", stringify!(#fn_ident)))).unwrap();
+                let wasm = fs::read(Path::new(#out_dir).join("bin").join(format!("{}.wasm", stringify!(#fn_ident)))).unwrap();
+                let binary = GWasmBinary {
+                    js: &js,
+                    wasm: &wasm,
+                };
+                let task = TaskBuilder::new(workspace.path(), binary)
+                    #(#subtasks)*
+                    .build()
+                    .unwrap();
+                let computed_task = golem::compute(
+                    Path::new(#datadir),
+                    #rpc_address,
+                    #rpc_port,
+                    task,
+                    match #net {
+                        "testnet" => Net::TestNet,
+                        "mainnet" => Net::MainNet,
+                        _ => unreachable!(),
+                    },
+                    ProgressTracker,
+                    None,
+                )
+                .await
+                .unwrap();
+
+                let mut out = vec![];
+                for subtask in computed_task.subtasks {
+                    for (_, mut reader) in subtask.data {
+                        reader.read_to_end(&mut out).unwrap();
+                    }
+                }
+                out
             }
-            out
+
+            imp(#(#args_pats)*)
         }
     };
 
