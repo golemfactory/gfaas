@@ -187,15 +187,17 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let net = params.net.unwrap_or("testnet".to_string());
     // Compute out dir
     let out_dir = env::var("GFAAS_OUT_DIR").expect("GFAAS_OUT_DIR should be defined");
-    let output = quote! {
-        #fn_vis async fn #fn_ident(#fn_args) #fn_ret {
-            #[cfg(feature = "local")]
-            fn imp(#fn_args) #fn_ret {
-                Vec::new()
+    let local_testing = env::var("GFAAS_LOCAL");
+    let fn_body = f.body;
+    let output = if let Ok(_) = local_testing {
+        quote! {
+            #fn_vis async fn #fn_ident(#fn_args) #fn_ret {
+                #fn_body
             }
-
-            #[cfg(not(feature = "local"))]
-            fn imp(#fn_args) #fn_ret {
+        }
+    } else {
+        quote! {
+            #fn_vis async fn #fn_ident(#fn_args) #fn_ret {
                 use gfaas::__private::gwasm_api::prelude::*;
                 use gfaas::__private::gwasm_api::golem;
                 use gfaas::__private::tempfile::tempdir;
@@ -244,8 +246,6 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 }
                 out
             }
-
-            imp(#(#args_pats)*)
         }
     };
 

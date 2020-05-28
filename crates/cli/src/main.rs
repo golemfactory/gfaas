@@ -56,8 +56,16 @@ fn main() {
     // Get cwd
     let cwd = env::current_dir().unwrap();
     match opt.cmd {
-        Subcommand::Build { local, release, args } => build(&cwd, local, release, &args),
-        Subcommand::Run { local, release, args } => run(&cwd, local, release, &args),
+        Subcommand::Build {
+            local,
+            release,
+            args,
+        } => build(&cwd, local, release, &args),
+        Subcommand::Run {
+            local,
+            release,
+            args,
+        } => run(&cwd, local, release, &args),
         Subcommand::Clean { args } => clean(&cwd, &args),
     }
 }
@@ -85,8 +93,9 @@ fn build(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
     // Parse manifest of the workspace and extract gfaas deps
     let manifest_path = Path::new(workspace_root).join("Cargo.toml");
     let contents = fs::read_to_string(&manifest_path).unwrap();
-    let manifest_toml = contents.parse::<toml::Value>().unwrap();
-    let gfaas_deps = manifest_toml["gfaas_dependencies"].as_table().unwrap();
+    let mut manifest_toml = contents.parse::<toml::Value>().unwrap();
+    let manifest_toml = manifest_toml.as_table_mut().unwrap();
+    let gfaas_deps = manifest_toml.remove("gfaas_dependencies").unwrap();
     let mut gfaas_toml = toml::toml! {
         [package]
         name = "gfaas_modules"
@@ -105,7 +114,7 @@ fn build(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
     let mut cmd = Command::new("cargo");
     cmd.arg("build");
     if local {
-        cmd.arg("--features").arg("local");
+        cmd.env("GFAAS_LOCAL", "");
     }
     cmd
         // TODO We don't want the user to pass `--release` using aux cargo args,
@@ -155,7 +164,7 @@ fn run(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
     let mut cmd = Command::new("cargo");
     cmd.arg("run");
     if local {
-        cmd.arg("--features").arg("local");
+        cmd.env("GFAAS_LOCAL", "");
     }
     cmd
         // TODO We don't want the user to pass `--release` using aux cargo args,
