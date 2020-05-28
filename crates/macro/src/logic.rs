@@ -188,11 +188,45 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     // Compute out dir
     let out_dir = env::var("GFAAS_OUT_DIR").expect("GFAAS_OUT_DIR should be defined");
     let local_testing = env::var("GFAAS_LOCAL");
-    let fn_body = f.body;
+    let input_data = args_pats[0].clone();
     let output = if let Ok(_) = local_testing {
         quote! {
             #fn_vis async fn #fn_ident(#fn_args) #fn_ret {
-                #fn_body
+                use gfaas::__private::sp_wasm_engine::prelude::*;
+                use gfaas::__private::tokio::task;
+                use gfaas::__private::tempfile::tempdir;
+                use gfaas::__private::lazy_static::lazy_static;
+                use std::fs;
+                use std::mem::ManuallyDrop;
+                use std::path::Path;
+                use std::sync::Arc;
+
+                lazy_static! {
+                    static ref ENGINE: Arc<JSEngine> = JSEngine::init().unwrap();
+                }
+
+                let data = Vec::from(#input_data);
+                let engine = Arc::clone(&ENGINE);
+
+                task::spawn_blocking(move || {
+                    let js = Path::new(#out_dir).join("bin").join(format!("{}.js", stringify!(#fn_ident)));
+                    let wasm = Path::new(#out_dir).join("bin").join(format!("{}.wasm", stringify!(#fn_ident)));
+                    let workspace = ManuallyDrop::new(tempdir().unwrap());
+                    let input_dir = workspace.path().join("in");
+                    let output_dir = workspace.path().join("out");
+                    fs::create_dir(&input_dir).unwrap();
+                    fs::create_dir(&output_dir).unwrap();
+                    fs::write(input_dir.join("in"), data).unwrap();
+
+                    Sandbox::new(engine)
+                        .and_then(|sandbox| sandbox.set_exec_args(vec!["in", "out"]))
+                        .and_then(|sandbox| sandbox.load_input_files(input_dir))
+                        .and_then(|sandbox| sandbox.run(js, wasm))
+                        .and_then(|sandbox| sandbox.save_output_files(&output_dir, vec!["out"]))
+                        .unwrap();
+
+                    fs::read(output_dir.join("out")).unwrap()
+                }).await.unwrap()
             }
         }
     } else {
