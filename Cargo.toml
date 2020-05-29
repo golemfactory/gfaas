@@ -8,6 +8,9 @@ edition = "2018"
 gfaas-macro = { path = "crates/macro" }
 gwasm-api = "0.2"
 tempfile = "3.1"
+tokio = { version = "0.2", features = ["blocking"] }
+sp-wasm-engine = "0.4"
+lazy_static = "1.4"
 
 [workspace]
 members = [

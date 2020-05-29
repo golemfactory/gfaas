@@ -23,6 +23,9 @@ struct Opt {
 enum Subcommand {
     /// Compile a local package and all of its dependencies
     Build {
+        /// Local-only (for testing only)
+        #[structopt(long)]
+        local: bool,
         /// Build artifacts in release mode, with optimizations
         #[structopt(long)]
         release: bool,
@@ -31,6 +34,9 @@ enum Subcommand {
         args: Vec<String>,
     },
     Run {
+        /// Local-only (for testing only)
+        #[structopt(long)]
+        local: bool,
         /// Run in release mode, with optimizations
         #[structopt(long)]
         release: bool,
@@ -50,13 +56,21 @@ fn main() {
     // Get cwd
     let cwd = env::current_dir().unwrap();
     match opt.cmd {
-        Subcommand::Build { release, args } => build(&cwd, release, &args),
-        Subcommand::Run { release, args } => run(&cwd, release, &args),
+        Subcommand::Build {
+            local,
+            release,
+            args,
+        } => build(&cwd, local, release, &args),
+        Subcommand::Run {
+            local,
+            release,
+            args,
+        } => run(&cwd, local, release, &args),
         Subcommand::Clean { args } => clean(&cwd, &args),
     }
 }
 
-fn build(cwd: &Path, release: bool, args: &Vec<String>) {
+fn build(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
     // Specify output dir
     let out_dir = cwd.join(format!(
         "target/{}",
@@ -79,8 +93,9 @@ fn build(cwd: &Path, release: bool, args: &Vec<String>) {
     // Parse manifest of the workspace and extract gfaas deps
     let manifest_path = Path::new(workspace_root).join("Cargo.toml");
     let contents = fs::read_to_string(&manifest_path).unwrap();
-    let manifest_toml = contents.parse::<toml::Value>().unwrap();
-    let gfaas_deps = manifest_toml["gfaas_dependencies"].as_table().unwrap();
+    let mut manifest_toml = contents.parse::<toml::Value>().unwrap();
+    let manifest_toml = manifest_toml.as_table_mut().unwrap();
+    let gfaas_deps = manifest_toml.remove("gfaas_dependencies").unwrap();
     let mut gfaas_toml = toml::toml! {
         [package]
         name = "gfaas_modules"
@@ -97,7 +112,11 @@ fn build(cwd: &Path, release: bool, args: &Vec<String>) {
     .unwrap();
     // Run cargo build
     let mut cmd = Command::new("cargo");
-    cmd.arg("build")
+    cmd.arg("build");
+    if local {
+        cmd.env("GFAAS_LOCAL", "");
+    }
+    cmd
         // TODO We don't want the user to pass `--release` using aux cargo args,
         // so let's filter it out for now. In the future, we might want to
         // throw an error instead.
@@ -132,10 +151,10 @@ fn build(cwd: &Path, release: bool, args: &Vec<String>) {
     let _cmd_out = cmd.output().unwrap();
 }
 
-fn run(cwd: &Path, release: bool, args: &Vec<String>) {
+fn run(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
     // We need to run cargo build first so that the Wasm artifacts are properly
     // generated.
-    build(cwd, release, args);
+    build(cwd, local, release, args);
     // Specify output dir
     let out_dir = cwd.join(format!(
         "target/{}",
@@ -143,7 +162,11 @@ fn run(cwd: &Path, release: bool, args: &Vec<String>) {
     ));
     // Run cargo run
     let mut cmd = Command::new("cargo");
-    cmd.arg("run")
+    cmd.arg("run");
+    if local {
+        cmd.env("GFAAS_LOCAL", "");
+    }
+    cmd
         // TODO We don't want the user to pass `--release` using aux cargo args,
         // so let's filter it out for now. In the future, we might want to
         // throw an error instead.
