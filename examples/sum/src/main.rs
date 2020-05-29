@@ -22,7 +22,6 @@ async fn main() {
     let output = input.fold(0u64, |acc, x| async move {
         let x = serde_json::to_vec(&x).unwrap();
         let out: Vec<u8> = partial_sum(&x).await;
-        println!("{:?}", out);
         let out: u64 = serde_json::from_slice(&out).unwrap();
         acc + out
     });
