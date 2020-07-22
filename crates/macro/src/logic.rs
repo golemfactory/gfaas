@@ -192,91 +192,126 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let output = if let Ok(_) = local_testing {
         quote! {
             #fn_vis async fn #fn_ident(#fn_args) #fn_ret {
-                use gfaas::__private::sp_wasm_engine::prelude::*;
+                use gfaas::__private::anyhow::Result;
                 use gfaas::__private::tokio::task;
                 use gfaas::__private::tempfile::tempdir;
-                use gfaas::__private::lazy_static::lazy_static;
-                use std::fs;
-                use std::path::Path;
+                use gfaas::__private::zip::{write::FileOptions, CompressionMethod, ZipWriter};
+                use gfaas::__private::serde_json;
+                use gfaas::__private::wasi_rt;
+                use std::{fs, io::{Cursor, Write}, path::Path};
 
-                lazy_static! {
-                    static ref ENGINE: Engine = Engine::new().unwrap();
+                struct Package {
+                    zip_writer: ZipWriter<Cursor<Vec<u8>>>,
+                    options: FileOptions,
+                    module_name: Option<String>,
+                }
+
+                impl Package {
+                    fn new() -> Self {
+                        let options = FileOptions::default().compression_method(CompressionMethod::Stored);
+                        let zip_writer = ZipWriter::new(Cursor::new(Vec::new()));
+
+                        Self {
+                            zip_writer,
+                            options,
+                            module_name: None,
+                        }
+                    }
+
+                    fn add_module_from_path<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+                        let module_name = path
+                            .as_ref()
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .to_owned();
+                        let contents = fs::read(path.as_ref())?;
+                        self.zip_writer
+                            .start_file(&module_name, self.options.clone())?;
+                        self.zip_writer.write(&contents)?;
+                        self.module_name = Some(module_name);
+
+                        Ok(())
+                    }
+
+                    fn write<P: AsRef<Path>>(mut self, path: P) -> Result<()> {
+                        // create manifest
+                        let comps: Vec<_> = self.module_name.as_ref().unwrap().split('.').collect();
+                        let manifest = serde_json::json!({
+                            "id": "custom",
+                            "name": "custom",
+                            "entry-points": [{
+                                "id": comps[0],
+                                "wasm-path": self.module_name.unwrap(),
+                            }],
+                            "mount-points": [{
+                                "rw": "workdir",
+                            }]
+                        });
+                        self.zip_writer
+                            .start_file("manifest.json", self.options.clone())?;
+                        self.zip_writer.write(&serde_json::to_vec(&manifest)?)?;
+
+                        let finalized = self.zip_writer.finish()?.into_inner();
+                        fs::write(path.as_ref(), finalized)?;
+
+                        Ok(())
+                    }
                 }
 
                 let data = Vec::from(#input_data);
-                let engine = ENGINE.clone();
 
                 task::spawn_blocking(move || {
-                    let js = Path::new(#out_dir).join("bin").join(format!("{}.js", stringify!(#fn_ident)));
-                    let wasm = Path::new(#out_dir).join("bin").join(format!("{}.wasm", stringify!(#fn_ident)));
+                    // 0. Create temp workspace
                     let workspace = tempdir().unwrap();
-                    let input_dir = workspace.path().join("in");
-                    let output_dir = workspace.path().join("out");
-                    fs::create_dir(&input_dir).unwrap();
-                    fs::create_dir(&output_dir).unwrap();
-                    fs::write(input_dir.join("in"), data).unwrap();
+                    println!("{}", workspace.path().display());
 
-                    Sandbox::new(&engine)
-                        .and_then(|sandbox| sandbox.set_exec_args(vec!["in", "out"]))
-                        .and_then(|sandbox| sandbox.load_input_files(input_dir))
-                        .and_then(|sandbox| sandbox.run(js, wasm))
-                        .and_then(|sandbox| sandbox.save_output_files(&output_dir, vec!["out"]))
+                    // 1. Prepare zip archive
+                    let package_path = workspace.path().join("pkg.zip");
+                    let module_name = format!("{}", stringify!(#fn_ident));
+                    let wasm = Path::new(#out_dir).join("bin").join(format!("{}.wasm", module_name));
+                    let mut package = Package::new();
+                    package.add_module_from_path(wasm).unwrap();
+                    package.write(&package_path).unwrap();
+
+                    // 2. Deploy
+                    wasi_rt::deploy(workspace.path(), &package_path).unwrap();
+                    wasi_rt::start(workspace.path()).unwrap();
+
+                    let deployment = wasi_rt::DeployFile::load(workspace.path()).unwrap();
+                    let vol = deployment
+                        .vols
+                        .iter()
+                        .find(|vol| vol.path.starts_with("/workdir"))
+                        .map(|vol| workspace.path().join(&vol.name))
                         .unwrap();
 
-                    fs::read(output_dir.join("out")).unwrap()
+                    let input_file_name = "in".to_owned();
+                    let output_file_name = "out".to_owned();
+                    let input_path = vol.join(&input_file_name);
+                    let output_path = vol.join(&output_file_name);
+                    fs::write(&input_path, data).unwrap();
+
+                    // 3. Run
+                    wasi_rt::run(
+                        workspace.path(),
+                        &module_name,
+                        vec![
+                            ["/workdir/", &input_file_name].join(""),
+                            ["/workdir/", &output_file_name].join(""),
+                        ],
+                    ).unwrap();
+
+                    // 4. Collect the results
+                    fs::read(output_path).unwrap()
                 }).await.unwrap()
             }
         }
     } else {
         quote! {
             #fn_vis async fn #fn_ident(#fn_args) #fn_ret {
-                use gfaas::__private::gwasm_api::prelude::*;
-                use gfaas::__private::gwasm_api::golem;
-                use gfaas::__private::tempfile::tempdir;
-                use std::fs;
-                use std::path::Path;
-                use std::io::Read;
-
-                struct ProgressTracker;
-
-                impl ProgressUpdate for ProgressTracker {
-                    fn update(&self, _progress: f64) {}
-                }
-
-                let workspace = tempdir().expect("could create a temp directory");
-                let js = fs::read(Path::new(#out_dir).join("bin").join(format!("{}.js", stringify!(#fn_ident)))).unwrap();
-                let wasm = fs::read(Path::new(#out_dir).join("bin").join(format!("{}.wasm", stringify!(#fn_ident)))).unwrap();
-                let binary = GWasmBinary {
-                    js: &js,
-                    wasm: &wasm,
-                };
-                let task = TaskBuilder::new(workspace.path(), binary)
-                    #(#subtasks)*
-                    .build()
-                    .unwrap();
-                let computed_task = golem::compute(
-                    Path::new(#datadir),
-                    #rpc_address,
-                    #rpc_port,
-                    task,
-                    match #net {
-                        "testnet" => Net::TestNet,
-                        "mainnet" => Net::MainNet,
-                        _ => unreachable!(),
-                    },
-                    ProgressTracker,
-                    None,
-                )
-                .await
-                .unwrap();
-
-                let mut out = vec![];
-                for subtask in computed_task.subtasks {
-                    for (_, mut reader) in subtask.data {
-                        reader.read_to_end(&mut out).unwrap();
-                    }
-                }
-                out
+                todo!("run on actual Golem")
             }
         }
     };

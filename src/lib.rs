@@ -1,9 +1,10 @@
 pub mod __private {
-    pub use gwasm_api;
+    pub use anyhow;
+    pub use serde_json;
     pub use tempfile;
-    pub use sp_wasm_engine;
     pub use tokio;
-    pub use lazy_static;
+    pub use wasi_rt;
+    pub use zip;
 }
 
 pub use gfaas_macro::remote_fn;

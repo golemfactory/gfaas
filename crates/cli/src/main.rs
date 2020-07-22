@@ -7,7 +7,7 @@ use structopt::{clap::AppSettings, StructOpt};
 #[structopt(
     name = "gfaas",
     author = "Jakub Konka <kubkon@golem.network>",
-    about = "Compile and run a Rust crate for the wasm32-unknown-emscripten target for use in gWasm platform on Golem Network.",
+    about = "Compile and run a Rust crate for the wasm32-wasi target for use in gWasm platform on Golem Network.",
     version = env!("CARGO_PKG_VERSION"),
     global_settings = &[
         AppSettings::VersionlessSubcommands,
@@ -95,16 +95,20 @@ fn build(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
     let contents = fs::read_to_string(&manifest_path).unwrap();
     let mut manifest_toml = contents.parse::<toml::Value>().unwrap();
     let manifest_toml = manifest_toml.as_table_mut().unwrap();
-    let gfaas_deps = manifest_toml.remove("gfaas_dependencies").unwrap();
+
     let mut gfaas_toml = toml::toml! {
         [package]
         name = "gfaas_modules"
         version = "0.1.0"
     };
-    gfaas_toml
-        .as_table_mut()
-        .unwrap()
-        .insert("dependencies".to_owned(), gfaas_deps.clone().into());
+
+    if let Some(deps) = manifest_toml.remove("gfaas_dependencies") {
+        gfaas_toml
+            .as_table_mut()
+            .unwrap()
+            .insert("dependencies".to_owned(), deps.into());
+    }
+
     fs::write(
         module_path.join("Cargo.toml"),
         toml::to_string(&gfaas_toml).unwrap(),
@@ -135,9 +139,8 @@ fn build(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
     // Next, run cargo build --target=wasm32-unknown-emscripten on gfaas_modules
     // crate.
     let mut cmd = Command::new("cargo");
-    cmd.arg("+1.38.0")
-        .arg("install")
-        .arg("--target=wasm32-unknown-emscripten")
+    cmd.arg("install")
+        .arg("--target=wasm32-wasi")
         .arg("--bins")
         .arg("--force")
         .arg("--root")
