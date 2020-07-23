@@ -192,73 +192,12 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let output = if let Ok(_) = local_testing {
         quote! {
             #fn_vis async fn #fn_ident(#fn_args) #fn_ret {
-                use gfaas::__private::anyhow::Result;
                 use gfaas::__private::tokio::task;
                 use gfaas::__private::tempfile::tempdir;
-                use gfaas::__private::zip::{write::FileOptions, CompressionMethod, ZipWriter};
-                use gfaas::__private::serde_json;
                 use gfaas::__private::wasi_rt;
-                use std::{fs, io::{Cursor, Write}, path::Path};
+                use gfaas::__private::package::Package;
+                use std::{fs, path::Path};
 
-                struct Package {
-                    zip_writer: ZipWriter<Cursor<Vec<u8>>>,
-                    options: FileOptions,
-                    module_name: Option<String>,
-                }
-
-                impl Package {
-                    fn new() -> Self {
-                        let options = FileOptions::default().compression_method(CompressionMethod::Stored);
-                        let zip_writer = ZipWriter::new(Cursor::new(Vec::new()));
-
-                        Self {
-                            zip_writer,
-                            options,
-                            module_name: None,
-                        }
-                    }
-
-                    fn add_module_from_path<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-                        let module_name = path
-                            .as_ref()
-                            .file_name()
-                            .unwrap()
-                            .to_str()
-                            .unwrap()
-                            .to_owned();
-                        let contents = fs::read(path.as_ref())?;
-                        self.zip_writer
-                            .start_file(&module_name, self.options.clone())?;
-                        self.zip_writer.write(&contents)?;
-                        self.module_name = Some(module_name);
-
-                        Ok(())
-                    }
-
-                    fn write<P: AsRef<Path>>(mut self, path: P) -> Result<()> {
-                        // create manifest
-                        let comps: Vec<_> = self.module_name.as_ref().unwrap().split('.').collect();
-                        let manifest = serde_json::json!({
-                            "id": "custom",
-                            "name": "custom",
-                            "entry-points": [{
-                                "id": comps[0],
-                                "wasm-path": self.module_name.unwrap(),
-                            }],
-                            "mount-points": [{
-                                "rw": "workdir",
-                            }]
-                        });
-                        self.zip_writer
-                            .start_file("manifest.json", self.options.clone())?;
-                        self.zip_writer.write(&serde_json::to_vec(&manifest)?)?;
-
-                        let finalized = self.zip_writer.finish()?.into_inner();
-                        fs::write(path.as_ref(), finalized)?;
-
-                        Ok(())
-                    }
-                }
 
                 let data = Vec::from(#input_data);
 
