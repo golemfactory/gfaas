@@ -250,7 +250,68 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     } else {
         quote! {
             #fn_vis async fn #fn_ident(#fn_args) #fn_ret {
-                todo!("run on actual Golem")
+                use gfaas::__private::dotenv;
+                use gfaas::__private::futures::{future::FutureExt, pin_mut, select};
+                use gfaas::__private::tokio::task;
+                use gfaas::__private::tempfile::tempdir;
+                use gfaas::__private::package::Package;
+                use gfaas::__private::ya_requestor_sdk::{self, commands, CommandList, Image::WebAssembly, Requestor};
+                use gfaas::__private::ya_agreement_utils::{constraints, ConstraintKey, Constraints};
+                use std::{fs, path::Path, collections::HashMap};
+
+                // 0. Load env vars
+                dotenv::from_path(Path::new(#datadir).join(".env")).unwrap();
+
+                // 1. Create temp workspace
+                let workspace = tempdir().unwrap();
+
+                // 2. Prepare package
+                let package_path = workspace.path().join("pkg.zip");
+                let module_name = format!("{}", stringify!(#fn_ident));
+                let wasm = Path::new(#out_dir).join("bin").join(format!("{}.wasm", module_name));
+                let mut package = Package::new();
+                package.add_module_from_path(wasm).unwrap();
+                package.write(&package_path).unwrap();
+
+                // 3. Prepare workspace
+                let input_path = workspace.path().join("in");
+                let output_path = workspace.path().join("out");
+                fs::write(&input_path, Vec::from(#input_data)).unwrap();
+
+                // 4. Run
+                let requestor = Requestor::new(
+                    "custom",
+                    WebAssembly((1, 0, 0).into()),
+                    ya_requestor_sdk::Package::Archive(package_path)
+                )
+                .with_max_budget_gnt(5)
+                .with_constraints(constraints![
+                    "golem.inf.mem.gib" > 0.5,
+                    "golem.inf.storage.gib" > 1.0,
+                    "golem.com.pricing.model" == "linear",
+                ])
+                .with_tasks(vec![commands! {
+                    upload(&input_path, "/workdir/in");
+                    run(module_name, "/workdir/in", "/workdir/out");
+                    download("/workdir/out", &output_path);
+                }].into_iter())
+                .on_completed(|outputs: HashMap<String, String>| {
+                    println!("{:#?}", outputs);
+                })
+                .run()
+                .fuse();
+
+                let ctrl_c = actix_rt::signal::ctrl_c().fuse();
+
+                pin_mut!(requestor, ctrl_c);
+
+                select! {
+                    comp_res = requestor => {
+                        let _ = comp_res.unwrap();
+                        fs::read(&output_path).unwrap()
+                    }
+                    _ = ctrl_c => panic!("interrupted: ctrl-c detected!"),
+                }
             }
         }
     };

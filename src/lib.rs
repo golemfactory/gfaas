@@ -1,7 +1,11 @@
 pub mod __private {
+    pub use dotenv;
+    pub use futures;
     pub use tempfile;
     pub use tokio;
     pub use wasi_rt;
+    pub use ya_requestor_sdk;
+    pub use ya_agreement_utils;
 
     #[allow(unused)]
     pub mod package {

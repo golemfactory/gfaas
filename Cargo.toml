@@ -7,11 +7,30 @@ edition = "2018"
 [dependencies]
 gfaas-macro = { path = "crates/macro" }
 anyhow = "1"
+dotenv = "0.15"
+futures = "0.3"
 zip = "0.5"
 serde_json = "1"
 tempfile = "3.1"
 tokio = { version = "0.2", features = ["blocking"] }
 wasi-rt = { git = "https://github.com/golemfactory/ya-runtime-wasi.git", package = "ya-runtime-wasi" }
+ya-requestor-sdk = { git = "https://github.com/golemfactory/yagna" }
+ya-agreement-utils = { git = "https://github.com/golemfactory/yagna" }
+thiserror = "1.0.20"
+
+[patch.crates-io]
+ya-client = { git = "https://github.com/golemfactory/ya-client" }
+ya-client-model = { git = "https://github.com/golemfactory/ya-client" }
+ya-agreement-utils = { git = "https://github.com/golemfactory/yagna" }
+ya-core-model = { git = "https://github.com/golemfactory/yagna" }
+ya-net = { git = "https://github.com/golemfactory/yagna" }
+ya-service-api = { git = "https://github.com/golemfactory/yagna" }
+ya-service-api-derive = { git = "https://github.com/golemfactory/yagna" }
+ya-service-api-interfaces = { git = "https://github.com/golemfactory/yagna" }
+ya-service-bus = { git = "https://github.com/golemfactory/yagna" }
+gftp = { git = "https://github.com/golemfactory/yagna" }
+ya-sb-proto = { git = "https://github.com/golemfactory/yagna" }
+ya-sb-util = { git = "https://github.com/golemfactory/yagna" }
 
 [workspace]
 members = [
