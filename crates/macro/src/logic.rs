@@ -105,9 +105,7 @@ impl Parse for GwasmAttrs {
 #[derive(Debug, Default)]
 struct GwasmParams {
     datadir: Option<String>,
-    rpc_address: Option<String>,
-    rpc_port: Option<u16>,
-    net: Option<String>,
+    budget: Option<u64>, // TODO should this be a bigdecimal?
 }
 
 // TODO parse optional datadir, host ip, port and net from attributes
@@ -124,33 +122,15 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                     x => panic!("invalid attribute value '{:#?}'", x),
                 };
             }
-            "rpc_address" => {
-                let lit = attr.value.lit;
-                match lit {
-                    Lit::Str(s) => params.rpc_address.replace(s.value()),
-                    x => panic!("invalid attribute value '{:#?}'", x),
-                };
-            }
-            "rpc_port" => {
+            "budget" => {
                 let lit = attr.value.lit;
                 match lit {
                     Lit::Str(s) => params
-                        .rpc_port
+                        .budget
                         .replace(s.value().parse().expect("correct value")),
                     Lit::Int(i) => params
-                        .rpc_port
+                        .budget
                         .replace(i.base10_parse().expect("correct value")),
-                    x => panic!("invalid attribute value '{:#?}'", x),
-                };
-            }
-            "net" => {
-                let lit = attr.value.lit;
-                match lit {
-                    Lit::Str(s) => match s.value().to_lowercase().as_str() {
-                        "testnet" => params.net.replace("testnet".to_string()),
-                        "mainnet" => params.net.replace("mainnet".to_string()),
-                        x => panic!("invalid attribute value '{}'", x),
-                    },
                     x => panic!("invalid attribute value '{:#?}'", x),
                 };
             }
@@ -182,9 +162,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
             .expect("valid Unicode path")
             .to_owned()
     });
-    let rpc_address = params.rpc_address.unwrap_or("127.0.0.1".to_string());
-    let rpc_port = params.rpc_port.unwrap_or(61000);
-    let net = params.net.unwrap_or("testnet".to_string());
+    let budget = params.budget.unwrap_or(5);
     // Compute out dir
     let out_dir = env::var("GFAAS_OUT_DIR").expect("GFAAS_OUT_DIR should be defined");
     let local_testing = env::var("GFAAS_LOCAL");
@@ -284,7 +262,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                     WebAssembly((1, 0, 0).into()),
                     ya_requestor_sdk::Package::Archive(package_path)
                 )
-                .with_max_budget_gnt(5)
+                .with_max_budget_gnt(#budget)
                 .with_constraints(constraints![
                     "golem.inf.mem.gib" > 0.5,
                     "golem.inf.storage.gib" > 1.0,

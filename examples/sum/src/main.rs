@@ -3,9 +3,7 @@ use futures::stream::{self, StreamExt};
 
 #[remote_fn(
     datadir = "/Users/kubkon/dev/yagna/ya-req",
-    rpc_address = "127.0.0.1",
-    rpc_port = 61000,
-    net = "testnet"
+    budget = 100,
 )]
 fn partial_sum(r#in: &[u8]) -> Vec<u8> {
     let s: Vec<u64> = serde_json::from_slice(r#in).unwrap();
@@ -16,7 +14,7 @@ fn partial_sum(r#in: &[u8]) -> Vec<u8> {
 #[actix_rt::main]
 async fn main() {
     let input: Vec<u64> = (0..100).collect();
-    let input: Vec<_> = input.chunks(10).collect();
+    let input: Vec<_> = input.chunks(50).collect();
     let input = stream::iter(input);
 
     let output = input.fold(0u64, |acc, x| async move {

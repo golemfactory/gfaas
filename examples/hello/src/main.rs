@@ -2,9 +2,7 @@ use gfaas::remote_fn;
 
 #[remote_fn(
     datadir = "/Users/kubkon/dev/yagna/ya-req",
-    rpc_address = "127.0.0.1",
-    rpc_port = 61000,
-    net = "testnet"
+    budget = 100,
 )]
 pub fn hello(r#in: &[u8]) -> Vec<u8> {
     println!("START");
