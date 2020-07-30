@@ -37,23 +37,6 @@ impl Parse for GwasmFn {
     }
 }
 
-fn validate_arg_type(ty: &Type) -> bool {
-    match ty {
-        Type::Array(arr) => validate_arg_type(&arr.elem),
-        Type::Slice(slice) => validate_arg_type(&slice.elem),
-        Type::Reference(r#ref) => validate_arg_type(&r#ref.elem),
-        Type::Path(path) => {
-            let path = &path.path;
-            if let Some(ident) = path.get_ident() {
-                ident.to_string() == "u8"
-            } else {
-                false
-            }
-        }
-        _ => false,
-    }
-}
-
 fn validate_extract_args(input: impl IntoIterator<Item = FnArg>) -> Vec<(Box<Pat>, Box<Type>)> {
     let mut args = vec![];
     for arg in input {
@@ -64,9 +47,6 @@ fn validate_extract_args(input: impl IntoIterator<Item = FnArg>) -> Vec<(Box<Pat
                 }
                 let pat = arg.pat;
                 let ty = arg.ty;
-                if !validate_arg_type(&ty) {
-                    panic!("unsupported argument type");
-                }
                 (pat, ty)
             }
             _ => panic!("self params are unsupported"),
@@ -108,7 +88,6 @@ struct GwasmParams {
     budget: Option<u64>, // TODO should this be a bigdecimal?
 }
 
-// TODO parse optional datadir, host ip, port and net from attributes
 pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStream) -> TokenStream {
     // Parse attributes
     let mut params = GwasmParams::default();
@@ -141,19 +120,11 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     // Validate and extract arguments
     let args = validate_extract_args(f.args.iter().map(|x| x.clone()));
     // Expand into gWasm connector code
-    // TODO this could potentially be unsafe (passing strings like this).
-    // Perhaps this could be weeded out with a custom cargo-gaas tool.
     let fn_vis = f.vis;
     let fn_ident = f.ident;
     let fn_args = f.args;
     let fn_ret = f.ret;
-
-    let mut subtasks = vec![];
     let args_pats: Vec<_> = args.iter().map(|(pat, _)| pat.clone()).collect();
-    for pat in &args_pats {
-        let ts = quote!(.push_subtask_data(Vec::from(#pat)));
-        subtasks.push(ts);
-    }
     let datadir = params.datadir.unwrap_or_else(|| {
         appdirs::user_data_dir(Some("golem"), Some("golem"), false)
             .expect("existing project app datadirs")
@@ -174,10 +145,8 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 use gfaas::__private::tempfile::tempdir;
                 use gfaas::__private::wasi_rt;
                 use gfaas::__private::package::Package;
+                use gfaas::__private::serde_json;
                 use std::{fs, path::Path};
-
-
-                let data = Vec::from(#input_data);
 
                 task::spawn_blocking(move || {
                     // 0. Create temp workspace
@@ -208,7 +177,8 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                     let output_file_name = "out".to_owned();
                     let input_path = vol.join(&input_file_name);
                     let output_path = vol.join(&output_file_name);
-                    fs::write(&input_path, data).unwrap();
+                    let serialized = serde_json::to_vec(&#input_data).unwrap();
+                    fs::write(&input_path, serialized).unwrap();
 
                     // 3. Run
                     wasi_rt::run(
@@ -221,7 +191,8 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                     ).unwrap();
 
                     // 4. Collect the results
-                    fs::read(output_path).unwrap()
+                    let output_data = fs::read(output_path).unwrap();
+                    serde_json::from_slice(&output_data).unwrap()
                 }).await.unwrap()
             }
         }
@@ -235,6 +206,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 use gfaas::__private::package::Package;
                 use gfaas::__private::ya_requestor_sdk::{self, commands, CommandList, Image::WebAssembly, Requestor};
                 use gfaas::__private::ya_agreement_utils::{constraints, ConstraintKey, Constraints};
+                use gfaas::__private::serde_json;
                 use std::{fs, path::Path, collections::HashMap};
 
                 // 0. Load env vars
@@ -254,7 +226,8 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 // 3. Prepare workspace
                 let input_path = workspace.path().join("in");
                 let output_path = workspace.path().join("out");
-                fs::write(&input_path, Vec::from(#input_data)).unwrap();
+                let serialized = serde_json::to_vec(&#input_data).unwrap();
+                fs::write(&input_path, serialized).unwrap();
 
                 // 4. Run
                 let requestor = Requestor::new(
@@ -286,7 +259,8 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 select! {
                     comp_res = requestor => {
                         let _ = comp_res.unwrap();
-                        fs::read(&output_path).unwrap()
+                        let output_data = fs::read(&output_path).unwrap();
+                        serde_json::from_slice(&output_data).unwrap()
                     }
                     _ = ctrl_c => panic!("interrupted: ctrl-c detected!"),
                 }
@@ -294,7 +268,6 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
         }
     };
 
-    // TODO here goes the actual contents of the Wasm module
     let mut inputs = vec![];
     let mut input_args = vec![];
     for i in 0..args.len() {
@@ -304,9 +277,10 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
             let mut f = File::open(next_arg).unwrap();
             let mut #in_ident = Vec::new();
             f.read_to_end(&mut #in_ident).unwrap();
+            let #in_ident = serde_json::from_slice(&#in_ident).unwrap();
         };
         inputs.push(ts);
-        input_args.push(quote!(&#in_ident));
+        input_args.push(quote!(#in_ident));
     }
     let contents = quote! {
         #preserved
@@ -321,9 +295,10 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
             #(#inputs)*
 
             let res = #fn_ident(#(#input_args),*);
+            let serialized = serde_json::to_vec(&res).unwrap();
 
             let mut f = File::create(out).unwrap();
-            f.write_all(&res).unwrap();
+            f.write_all(&serialized).unwrap();
         }
     };
 

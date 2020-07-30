@@ -6,6 +6,7 @@ pub mod __private {
     pub use wasi_rt;
     pub use ya_requestor_sdk;
     pub use ya_agreement_utils;
+    pub use serde_json;
 
     #[allow(unused)]
     pub mod package {

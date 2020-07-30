@@ -5,10 +5,8 @@ use futures::stream::{self, StreamExt};
     datadir = "/Users/kubkon/dev/yagna/ya-req",
     budget = 100,
 )]
-fn partial_sum(r#in: &[u8]) -> Vec<u8> {
-    let s: Vec<u64> = serde_json::from_slice(r#in).unwrap();
-    let s: u64 = s.into_iter().sum();
-    serde_json::to_vec(&s).unwrap()
+fn partial_sum(r#in: Vec<u64>) -> u64 {
+    r#in.into_iter().sum()
 }
 
 #[actix_rt::main]
@@ -18,9 +16,7 @@ async fn main() {
     let input = stream::iter(input);
 
     let output = input.fold(0u64, |acc, x| async move {
-        let x = serde_json::to_vec(&x).unwrap();
-        let out: Vec<u8> = partial_sum(&x).await;
-        let out: u64 = serde_json::from_slice(&out).unwrap();
+        let out = partial_sum(x.to_vec()).await;
         acc + out
     });
     let output = output.await;

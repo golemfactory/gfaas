@@ -107,6 +107,14 @@ fn build(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
             .as_table_mut()
             .unwrap()
             .insert("dependencies".to_owned(), deps.into());
+    // TODO insert serde_json dep
+    } else {
+        gfaas_toml.as_table_mut().unwrap().insert(
+            "dependencies".to_owned(),
+            toml::toml! {
+                serde_json = "1"
+            },
+        );
     }
 
     fs::write(
@@ -136,8 +144,7 @@ fn build(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
         cmd.arg("--release");
     }
     let _cmd_out = cmd.output().unwrap();
-    // Next, run cargo build --target=wasm32-unknown-emscripten on gfaas_modules
-    // crate.
+    // Next, run cargo build --target=wasm32-wasi on gfaas_modules crate.
     let mut cmd = Command::new("cargo");
     cmd.arg("install")
         .arg("--target=wasm32-wasi")
