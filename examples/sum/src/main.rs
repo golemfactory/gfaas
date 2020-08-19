@@ -10,7 +10,7 @@ fn partial_sum(r#in: Vec<u64>) -> u64 {
 }
 
 #[actix_rt::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let input: Vec<u64> = (0..100).collect();
     let input: Vec<_> = input.chunks(50).collect();
     let input = stream::iter(input);
@@ -19,7 +19,7 @@ async fn main() {
         let out = partial_sum(x.to_vec()).await;
         acc + out
     });
-    let output = output.await;
+    let output = output.await?;
     println!("{:?}", output);
     assert_eq!((0..100).sum::<u64>(), output);
 }

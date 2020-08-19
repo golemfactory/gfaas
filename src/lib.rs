@@ -1,4 +1,5 @@
 pub mod __private {
+    pub use anyhow;
     pub use dotenv;
     pub use futures;
     pub use tempfile;

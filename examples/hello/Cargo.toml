@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 gfaas = { path = "../../" }
+anyhow = "1"
 actix-rt = "1"
 
 [patch.crates-io]

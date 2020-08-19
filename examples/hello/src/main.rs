@@ -9,8 +9,10 @@ pub fn hello(r#in: String) -> String {
 }
 
 #[actix_rt::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let r#in = "hey there gwasm";
-    let out = hello("hey there gwasm".to_string()).await;
-    println!("in: {}, out: {}", r#in, out)
+    let out = hello("hey there gwasm".to_string()).await?;
+    println!("in: {}, out: {}", r#in, out);
+
+    Ok(())
 }

@@ -123,7 +123,12 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let fn_vis = f.vis;
     let fn_ident = f.ident;
     let fn_args = f.args;
-    let fn_ret = f.ret;
+
+    let fn_ret = match f.ret {
+        ReturnType::Default => panic!("unit return type () is unsupported"),
+        ReturnType::Type(_, tt) => quote!(gfaas::__private::anyhow::Result<#tt>),
+    };
+
     let args_pats: Vec<_> = args.iter().map(|(pat, _)| pat.clone()).collect();
     let datadir = params.datadir.unwrap_or_else(|| {
         appdirs::user_data_dir(Some("golem"), Some("golem"), false)
@@ -140,7 +145,8 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let input_data = args_pats[0].clone();
     let output = if let Ok(_) = local_testing {
         quote! {
-            #fn_vis async fn #fn_ident(#fn_args) #fn_ret {
+            #fn_vis async fn #fn_ident(#fn_args) -> #fn_ret {
+                use gfaas::__private::anyhow::Context;
                 use gfaas::__private::tokio::task;
                 use gfaas::__private::tempfile::tempdir;
                 use gfaas::__private::wasi_rt;
@@ -150,7 +156,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
 
                 task::spawn_blocking(move || {
                     // 0. Create temp workspace
-                    let workspace = tempdir().unwrap();
+                    let workspace = tempdir().context("creating temp dir")?;
                     println!("{}", workspace.path().display());
 
                     // 1. Prepare zip archive
@@ -158,27 +164,27 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                     let module_name = format!("{}", stringify!(#fn_ident));
                     let wasm = Path::new(#out_dir).join("bin").join(format!("{}.wasm", module_name));
                     let mut package = Package::new();
-                    package.add_module_from_path(wasm).unwrap();
-                    package.write(&package_path).unwrap();
+                    package.add_module_from_path(wasm).context("adding Wasm module from path")?;
+                    package.write(&package_path).context("saving Yagna zip package to file")?;
 
                     // 2. Deploy
-                    wasi_rt::deploy(workspace.path(), &package_path).unwrap();
-                    wasi_rt::start(workspace.path()).unwrap();
+                    wasi_rt::deploy(workspace.path(), &package_path).context("deploying Yagna package")?;
+                    wasi_rt::start(workspace.path()).context("executing Yagna start command")?;
 
-                    let deployment = wasi_rt::DeployFile::load(workspace.path()).unwrap();
+                    let deployment = wasi_rt::DeployFile::load(workspace.path()).context("loading deployed Yagna package")?;
                     let vol = deployment
                         .vols
                         .iter()
                         .find(|vol| vol.path.starts_with("/workdir"))
                         .map(|vol| workspace.path().join(&vol.name))
-                        .unwrap();
+                        .context("extracting workdir path from Yagna package")?;
 
                     let input_file_name = "in".to_owned();
                     let output_file_name = "out".to_owned();
                     let input_path = vol.join(&input_file_name);
                     let output_path = vol.join(&output_file_name);
-                    let serialized = serde_json::to_vec(&#input_data).unwrap();
-                    fs::write(&input_path, serialized).unwrap();
+                    let serialized = serde_json::to_vec(&#input_data).context("serializing input data")?;
+                    fs::write(&input_path, serialized).context("writing serialized data to file")?;
 
                     // 3. Run
                     wasi_rt::run(
@@ -188,17 +194,20 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                             ["/workdir/", &input_file_name].join(""),
                             ["/workdir/", &output_file_name].join(""),
                         ],
-                    ).unwrap();
+                    ).context("executing Yagna run command")?;
 
                     // 4. Collect the results
-                    let output_data = fs::read(output_path).unwrap();
-                    serde_json::from_slice(&output_data).unwrap()
-                }).await.unwrap()
+                    let output_data = fs::read(output_path).context("reading output data from file")?;
+                    let res = serde_json::from_slice(&output_data).context("deserializing output data")?;
+
+                    Ok(res)
+                }).await?
             }
         }
     } else {
         quote! {
-            #fn_vis async fn #fn_ident(#fn_args) #fn_ret {
+            #fn_vis async fn #fn_ident(#fn_args) -> #fn_ret {
+                use gfaas::__private::anyhow::{Context, anyhow};
                 use gfaas::__private::dotenv;
                 use gfaas::__private::futures::{future::FutureExt, pin_mut, select};
                 use gfaas::__private::tokio::task;
@@ -210,24 +219,24 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 use std::{fs, path::Path, collections::HashMap};
 
                 // 0. Load env vars
-                dotenv::from_path(Path::new(#datadir).join(".env")).unwrap();
+                dotenv::from_path(Path::new(#datadir).join(".env")).ok_or(anyhow!("datadir not found"))?;
 
                 // 1. Create temp workspace
-                let workspace = tempdir().unwrap();
+                let workspace = tempdir().context("creating temp dir")?;
 
                 // 2. Prepare package
                 let package_path = workspace.path().join("pkg.zip");
                 let module_name = format!("{}", stringify!(#fn_ident));
                 let wasm = Path::new(#out_dir).join("bin").join(format!("{}.wasm", module_name));
                 let mut package = Package::new();
-                package.add_module_from_path(wasm).unwrap();
-                package.write(&package_path).unwrap();
+                package.add_module_from_path(wasm).context("adding Wasm module from path")?;
+                package.write(&package_path).context("saving Yagna zig package to file")?;
 
                 // 3. Prepare workspace
                 let input_path = workspace.path().join("in");
                 let output_path = workspace.path().join("out");
-                let serialized = serde_json::to_vec(&#input_data).unwrap();
-                fs::write(&input_path, serialized).unwrap();
+                let serialized = serde_json::to_vec(&#input_data).context("serializing input data")?;
+                fs::write(&input_path, serialized).context("writing serialized data to file")?;
 
                 // 4. Run
                 let requestor = Requestor::new(
@@ -258,11 +267,13 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
 
                 select! {
                     comp_res = requestor => {
-                        let _ = comp_res.unwrap();
-                        let output_data = fs::read(&output_path).unwrap();
-                        serde_json::from_slice(&output_data).unwrap()
+                        let _ = comp_res.context("running task on Yagna")?;
+                        let output_data = fs::read(&output_path).context("reading output data from file")?;
+                        let res = serde_json::from_slice(&output_data).context("deserializing output data")?;
+
+                        Ok(res)
                     }
-                    _ = ctrl_c => panic!("interrupted: ctrl-c detected!"),
+                    _ = ctrl_c => Err(anyhow!("interrupted: ctrl-c detected!")),
                 }
             }
         }
