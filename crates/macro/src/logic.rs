@@ -43,13 +43,13 @@ fn validate_extract_args(input: impl IntoIterator<Item = FnArg>) -> Vec<(Box<Pat
         let (pat, ty) = match arg {
             FnArg::Typed(arg) => {
                 if arg.attrs.len() > 0 {
-                    panic!("attributes around fn args are unsupported");
+                    panic!("attributes around function arguments are unsupported");
                 }
                 let pat = arg.pat;
                 let ty = arg.ty;
                 (pat, ty)
             }
-            _ => panic!("self params are unsupported"),
+            _ => panic!("functions taking 'self' are unsupported"),
         };
         args.push((pat, ty));
     }
@@ -85,7 +85,7 @@ impl Parse for GwasmAttrs {
 #[derive(Debug, Default)]
 struct GwasmParams {
     datadir: Option<String>,
-    budget: Option<u64>, // TODO should this be a bigdecimal?
+    budget: Option<u64>,
 }
 
 pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStream) -> TokenStream {
@@ -98,7 +98,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 let lit = attr.value.lit;
                 match lit {
                     Lit::Str(s) => params.datadir.replace(s.value()),
-                    x => panic!("invalid attribute value '{:#?}'", x),
+                    x => panic!("invalid attribute value '{:#?}': expected string", x),
                 };
             }
             "budget" => {
@@ -110,10 +110,10 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                     Lit::Int(i) => params
                         .budget
                         .replace(i.base10_parse().expect("correct value")),
-                    x => panic!("invalid attribute value '{:#?}'", x),
+                    x => panic!("invalid attribute value '{:#?}': expected string or int", x),
                 };
             }
-            x => panic!("unexpected attribute '{}'", x),
+            x => panic!("unexpected attribute '{}': expected 'datadir' or 'budget'", x),
         }
     }
 
@@ -219,7 +219,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 use std::{fs, path::Path, collections::HashMap};
 
                 // 0. Load env vars
-                dotenv::from_path(Path::new(#datadir).join(".env")).ok_or(anyhow!("datadir not found"))?;
+                dotenv::from_path(Path::new(#datadir).join(".env")).context("datadir not found")?;
 
                 // 1. Create temp workspace
                 let workspace = tempdir().context("creating temp dir")?;

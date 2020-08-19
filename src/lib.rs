@@ -1,4 +1,6 @@
 pub mod __private {
+    //! This is a private module. The stability of this API is not guaranteed and may change
+    //! without notice in the future.
     pub use anyhow;
     pub use dotenv;
     pub use futures;
@@ -11,6 +13,7 @@ pub mod __private {
 
     #[allow(unused)]
     pub mod package {
+        //! This private module describes the structures concerning Yagna packages.
         use anyhow::Result;
         use std::{
             fs,
@@ -19,6 +22,7 @@ pub mod __private {
         };
         use zip::{write::FileOptions, CompressionMethod, ZipWriter};
 
+        /// Represents Yagna package which internally is represented as a zip archive.
         pub struct Package {
             zip_writer: ZipWriter<Cursor<Vec<u8>>>,
             options: FileOptions,
@@ -26,6 +30,7 @@ pub mod __private {
         }
 
         impl Package {
+            /// Creates new empty Yagna package.
             pub fn new() -> Self {
                 let options = FileOptions::default().compression_method(CompressionMethod::Stored);
                 let zip_writer = ZipWriter::new(Cursor::new(Vec::new()));
@@ -37,6 +42,7 @@ pub mod __private {
                 }
             }
 
+            /// Adds a Wasm modules from path.
             pub fn add_module_from_path<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
                 let module_name = path
                     .as_ref()
@@ -54,6 +60,7 @@ pub mod __private {
                 Ok(())
             }
 
+            /// Write the package to file at the given path.
             pub fn write<P: AsRef<Path>>(mut self, path: P) -> Result<()> {
                 // create manifest
                 let comps: Vec<_> = self.module_name.as_ref().unwrap().split('.').collect();

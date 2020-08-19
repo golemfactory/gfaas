@@ -1,7 +1,7 @@
 [package]
 name = "gfaas-macro"
 version = "0.1.0"
-authors = ["Jakub Konka <jakub.konka@golem.network>"]
+authors = ["Jakub Konka <kubkon@golem.network>"]
 edition = "2018"
 
 [lib]

@@ -1,6 +1,9 @@
-use std::path::Path;
-use std::process::{Command, Stdio};
-use std::{env, fs, io};
+use anyhow::{anyhow, bail, Context, Result};
+use std::{
+    env, fs, io,
+    path::Path,
+    process::{Command, Stdio},
+};
 use structopt::{clap::AppSettings, StructOpt};
 
 #[derive(Debug, StructOpt)]
@@ -33,6 +36,7 @@ enum Subcommand {
         #[structopt()]
         args: Vec<String>,
     },
+    /// Run a local package
     Run {
         /// Local-only (for testing only)
         #[structopt(long)]
@@ -44,6 +48,7 @@ enum Subcommand {
         #[structopt()]
         args: Vec<String>,
     },
+    /// Clean the build artefacts
     Clean {
         /// Pass additional arguments directly to cargo run command
         #[structopt()]
@@ -53,48 +58,66 @@ enum Subcommand {
 
 fn main() {
     let opt = Opt::from_args();
-    // Get cwd
-    let cwd = env::current_dir().unwrap();
-    match opt.cmd {
+    let res = match opt.cmd {
         Subcommand::Build {
             local,
             release,
             args,
-        } => build(&cwd, local, release, &args),
+        } => build(local, release, &args),
         Subcommand::Run {
             local,
             release,
             args,
-        } => run(&cwd, local, release, &args),
-        Subcommand::Clean { args } => clean(&cwd, &args),
+        } => run(local, release, &args),
+        Subcommand::Clean { args } => clean(&args),
+    };
+
+    if let Err(err) = res {
+        eprintln!("Unexpected error occurred: {}", err)
     }
 }
 
-fn build(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
+fn build(local: bool, release: bool, args: &Vec<String>) -> Result<()> {
+    let cwd = env::current_dir().context("fetching cwd from env")?;
+
     // Specify output dir
     let out_dir = cwd.join(format!(
         "target/{}",
         if release { "release" } else { "debug" }
     ));
+
     // Fetch cargo manifest path for the root project
     let mut cmd = Command::new("cargo");
-    let cmd_out = cmd.arg("metadata").output().unwrap();
-    let metadata: serde_json::Value = serde_json::from_slice(&cmd_out.stdout).unwrap();
-    let workspace_root = metadata["workspace_root"].as_str().unwrap();
+    let cmd_out = cmd
+        .arg("metadata")
+        .output()
+        .context("running 'cargo metadata' command")?;
+    let metadata: serde_json::Value = serde_json::from_slice(&cmd_out.stdout)
+        .context("deserializing JSON from 'cargo metadata' output")?;
+    let workspace_root = metadata["workspace_root"]
+        .as_str()
+        .ok_or(anyhow!("metadata['workspace_root'] is not a UTF8 string"))?;
+
     // Create cargo package with gfaas funcs
     let module_path = Path::new(&out_dir).join("gfaas_modules");
     let bin_path = module_path.join("src").join("bin");
     if let Err(err) = fs::create_dir_all(&bin_path) {
         match err.kind() {
             io::ErrorKind::AlreadyExists => {}
-            _ => panic!("couldn't create gfaas_module dir: {}", err),
+            _ => bail!("couldn't create gfaas_module dir: {}", err),
         }
     }
+
     // Parse manifest of the workspace and extract gfaas deps
     let manifest_path = Path::new(workspace_root).join("Cargo.toml");
-    let contents = fs::read_to_string(&manifest_path).unwrap();
-    let mut manifest_toml = contents.parse::<toml::Value>().unwrap();
-    let manifest_toml = manifest_toml.as_table_mut().unwrap();
+    let contents = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read '{}'", manifest_path.display()))?;
+    let mut manifest_toml = contents
+        .parse::<toml::Value>()
+        .context("parsing contents of 'Cargo.toml' as TOML")?;
+    let manifest_toml = manifest_toml
+        .as_table_mut()
+        .ok_or(anyhow!("malformed 'Cargo.toml'?"))?;
 
     let mut gfaas_toml = toml::toml! {
         [package]
@@ -117,11 +140,11 @@ fn build(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
         );
     }
 
-    fs::write(
-        module_path.join("Cargo.toml"),
-        toml::to_string(&gfaas_toml).unwrap(),
-    )
-    .unwrap();
+    let gfaas_toml =
+        toml::to_string(&gfaas_toml).context("couldn't serialize gfaas modules to TOML")?;
+    fs::write(module_path.join("Cargo.toml"), gfaas_toml)
+        .with_context(|| format!("saving '{}'", module_path.join("Cargo.toml").display()))?;
+
     // Run cargo build
     let mut cmd = Command::new("cargo");
     cmd.arg("build");
@@ -143,7 +166,8 @@ fn build(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
     if release {
         cmd.arg("--release");
     }
-    let _cmd_out = cmd.output().unwrap();
+    let _cmd_out = cmd.output().context("failed to build the project")?;
+
     // Next, run cargo build --target=wasm32-wasi on gfaas_modules crate.
     let mut cmd = Command::new("cargo");
     cmd.arg("install")
@@ -158,13 +182,18 @@ fn build(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
     if !release {
         cmd.arg("--debug");
     }
-    let _cmd_out = cmd.output().unwrap();
+    let _ = cmd.output().context("failed to build the gfaas modules")?;
+
+    Ok(())
 }
 
-fn run(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
+fn run(local: bool, release: bool, args: &Vec<String>) -> Result<()> {
+    let cwd = env::current_dir().context("fetching cwd from env")?;
+
     // We need to run cargo build first so that the Wasm artifacts are properly
     // generated.
-    build(cwd, local, release, args);
+    build(local, release, args)?;
+
     // Specify output dir
     let out_dir = cwd.join(format!(
         "target/{}",
@@ -191,10 +220,14 @@ fn run(cwd: &Path, local: bool, release: bool, args: &Vec<String>) {
     if release {
         cmd.arg("--release");
     }
-    let _cmd_out = cmd.output().unwrap();
+    let _ = cmd.output().context("failed to run the project")?;
+
+    Ok(())
 }
 
-fn clean(cwd: &Path, args: &Vec<String>) {
+fn clean(args: &Vec<String>) -> Result<()> {
+    let cwd = env::current_dir().context("fetching cwd from env")?;
+
     let mut cmd = Command::new("cargo");
     cmd.arg("clean")
         .args(args.iter().filter(|x| !x.contains("--target-dir")))
@@ -202,5 +235,7 @@ fn clean(cwd: &Path, args: &Vec<String>) {
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .current_dir(cwd);
-    let _cmd_out = cmd.output().unwrap();
+    let _ = cmd.output().context("failed to clean the project")?;
+
+    Ok(())
 }
