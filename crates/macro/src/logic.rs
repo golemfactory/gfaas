@@ -1,14 +1,12 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use std::env;
-use std::fs::File;
-use std::io::Write;
-use std::path::Path;
-use syn::parse::{Parse, ParseStream};
-use syn::punctuated::Punctuated;
-use syn::token::Paren;
+use std::{env, fs::File, io::Write, path::Path};
 use syn::{
-    parenthesized, Block, ExprLit, FnArg, Ident, Lit, Pat, ReturnType, Token, Type, Visibility,
+    parenthesized,
+    parse::{Parse, ParseStream},
+    punctuated::Punctuated,
+    token::Paren,
+    Block, ExprLit, FnArg, Ident, Lit, Pat, ReturnType, Token, Type, Visibility,
 };
 
 #[derive(Debug)]
@@ -113,7 +111,10 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                     x => panic!("invalid attribute value '{:#?}': expected string or int", x),
                 };
             }
-            x => panic!("unexpected attribute '{}': expected 'datadir' or 'budget'", x),
+            x => panic!(
+                "unexpected attribute '{}': expected 'datadir' or 'budget'",
+                x
+            ),
         }
     }
 
