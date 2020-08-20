@@ -124,12 +124,12 @@ pub mod __private {
     pub use anyhow;
     pub use dotenv;
     pub use futures;
+    pub use serde_json;
     pub use tempfile;
     pub use tokio;
     pub use wasi_rt;
-    pub use ya_requestor_sdk;
     pub use ya_agreement_utils;
-    pub use serde_json;
+    pub use ya_requestor_sdk;
 
     #[allow(unused)]
     pub mod package {
