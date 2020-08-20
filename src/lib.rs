@@ -34,14 +34,14 @@
 //! In order to compile your code you'll need to use our custom wrapper on top of `cargo` called
 //! `gfaas`. You can install the tool with `cargo-install` like so
 //!
-//! ```
+//! ```sh
 //! cargo install gfaas-cli
 //! ```
 //!
 //! Then, you can use `gfaas` like you would use `cargo`. So, to build and run on Golem Network,
 //! you'd execute
 //!
-//! ```
+//! ```sh
 //! gfaas run
 //! ```
 //!
@@ -105,7 +105,7 @@
 //! `GFAAS_RUN=local` env variable. For example, to run locally using the `gfaas` build tool
 //! you would
 //!
-//! ```
+//! ```sh
 //! GFAAS_RUN=local gfaas run
 //! ```
 //!
