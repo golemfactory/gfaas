@@ -4,6 +4,10 @@
   <p>
     <strong>Function-as-a-Service on top of Golem Network using gWasm platform.</strong>
   </p>
+
+  <p>
+    <a href="https://github.com/golemfactory/gfaas/actions?query=branch%3Amaster"><img src="https://github.com/golemfactory/gfaas/workflows/Continuous%20Integration/badge.svg" alt="Build status" /></a>
+  </p>
 </div>
 
 This crate allows you to distributed heavy-workload functions to the [Golem Network] (or any
