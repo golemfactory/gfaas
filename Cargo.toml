@@ -3,6 +3,12 @@ name = "gfaas"
 version = "0.1.0"
 authors = ["Jakub Konka <jakub.konka@golem.network>"]
 edition = "2018"
+license = "GPL-3.0"
+readme = "README.md"
+repository = "https://github.com/golemfactory/gfaas"
+homepage = "https://github.com/golemfactory/gfaas"
+documentation = "https://github.com/golemfactory/gfaas"
+description = "Distribute heavy-workload functions on Golem Network or other backend"
 
 [dependencies]
 gfaas-macro = { path = "crates/macro" }
