@@ -26,9 +26,6 @@ struct Opt {
 enum Subcommand {
     /// Compile a local package and all of its dependencies
     Build {
-        /// Local-only (for testing only)
-        #[structopt(long)]
-        local: bool,
         /// Build artifacts in release mode, with optimizations
         #[structopt(long)]
         release: bool,
@@ -38,9 +35,6 @@ enum Subcommand {
     },
     /// Run a local package
     Run {
-        /// Local-only (for testing only)
-        #[structopt(long)]
-        local: bool,
         /// Run in release mode, with optimizations
         #[structopt(long)]
         release: bool,
@@ -59,16 +53,8 @@ enum Subcommand {
 fn main() {
     let opt = Opt::from_args();
     let res = match opt.cmd {
-        Subcommand::Build {
-            local,
-            release,
-            args,
-        } => build(local, release, &args),
-        Subcommand::Run {
-            local,
-            release,
-            args,
-        } => run(local, release, &args),
+        Subcommand::Build { release, args } => build(release, &args),
+        Subcommand::Run { release, args } => run(release, &args),
         Subcommand::Clean { args } => clean(&args),
     };
 
@@ -77,7 +63,7 @@ fn main() {
     }
 }
 
-fn build(local: bool, release: bool, args: &Vec<String>) -> Result<()> {
+fn build(release: bool, args: &Vec<String>) -> Result<()> {
     let cwd = env::current_dir().context("fetching cwd from env")?;
 
     // Specify output dir
@@ -147,11 +133,7 @@ fn build(local: bool, release: bool, args: &Vec<String>) -> Result<()> {
 
     // Run cargo build
     let mut cmd = Command::new("cargo");
-    cmd.arg("build");
-    if local {
-        cmd.env("GFAAS_LOCAL", "");
-    }
-    cmd
+    cmd.arg("build")
         // TODO We don't want the user to pass `--release` using aux cargo args,
         // so let's filter it out for now. In the future, we might want to
         // throw an error instead.
@@ -187,12 +169,12 @@ fn build(local: bool, release: bool, args: &Vec<String>) -> Result<()> {
     Ok(())
 }
 
-fn run(local: bool, release: bool, args: &Vec<String>) -> Result<()> {
+fn run(release: bool, args: &Vec<String>) -> Result<()> {
     let cwd = env::current_dir().context("fetching cwd from env")?;
 
     // We need to run cargo build first so that the Wasm artifacts are properly
     // generated.
-    build(local, release, args)?;
+    build(release, args)?;
 
     // Specify output dir
     let out_dir = cwd.join(format!(
@@ -201,11 +183,7 @@ fn run(local: bool, release: bool, args: &Vec<String>) -> Result<()> {
     ));
     // Run cargo run
     let mut cmd = Command::new("cargo");
-    cmd.arg("run");
-    if local {
-        cmd.env("GFAAS_LOCAL", "");
-    }
-    cmd
+    cmd.arg("run")
         // TODO We don't want the user to pass `--release` using aux cargo args,
         // so let's filter it out for now. In the future, we might want to
         // throw an error instead.

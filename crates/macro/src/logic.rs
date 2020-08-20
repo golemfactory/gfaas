@@ -142,11 +142,20 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let budget = params.budget.unwrap_or(5);
     // Compute out dir
     let out_dir = env::var("GFAAS_OUT_DIR").expect("GFAAS_OUT_DIR should be defined");
-    let local_testing = env::var("GFAAS_LOCAL");
     let input_data = args_pats[0].clone();
-    let output = if let Ok(_) = local_testing {
-        quote! {
-            #fn_vis async fn #fn_ident(#fn_args) -> #fn_ret {
+    let output = quote! {
+        #fn_vis async fn #fn_ident(#fn_args) -> #fn_ret {
+            enum RunType {
+                Local,
+                Golem,
+            }
+
+            let run_type = match std::env::var("GFAAS_RUN") {
+                Ok(var) => if var == "local" { RunType::Local } else { RunType::Golem },
+                Err(_) => RunType::Golem,
+            };
+
+            if let RunType::Local = run_type {
                 use gfaas::__private::anyhow::Context;
                 use gfaas::__private::tokio::task;
                 use gfaas::__private::tempfile::tempdir;
@@ -203,11 +212,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
 
                     Ok(res)
                 }).await?
-            }
-        }
-    } else {
-        quote! {
-            #fn_vis async fn #fn_ident(#fn_args) -> #fn_ret {
+            } else {
                 use gfaas::__private::anyhow::{Context, anyhow};
                 use gfaas::__private::dotenv;
                 use gfaas::__private::futures::{future::FutureExt, pin_mut, select};
