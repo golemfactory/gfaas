@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["gfaas"] = [{"text":"impl <a class=\"trait\" href=\"https://doc.rust-lang.org/nightly/std/panic/trait.RefUnwindSafe.html\" title=\"trait std::panic::RefUnwindSafe\">RefUnwindSafe</a> for <a class=\"struct\" href=\"gfaas/__private/package/struct.Package.html\" title=\"struct gfaas::__private::package::Package\">Package</a>","synthetic":true,"types":["gfaas::__private::package::Package"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

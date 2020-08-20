@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Package","Represents Yagna package which internally is represented as a zip archive."]]});
