@@ -35,7 +35,7 @@
 //! `gfaas`. You can install the tool with `cargo-install` like so
 //!
 //! ```
-//! cargo install gfaas
+//! cargo install gfaas-cli
 //! ```
 //!
 //! Then, you can use `gfaas` like you would use `cargo`. So, to build and run on Golem Network,
