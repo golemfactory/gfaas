@@ -8,6 +8,10 @@
   <p>
     <a href="https://github.com/golemfactory/gfaas/actions?query=branch%3Amaster"><img src="https://github.com/golemfactory/gfaas/workflows/Continuous%20Integration/badge.svg" alt="Build status" /></a>
   </p>
+
+  <h3>
+    <a href="https://golemfactory.github.io/gfaas/gfaas/">Docs (master)</a>
+  </h3>
 </div>
 
 This crate allows you to distributed heavy-workload functions to the [Golem Network] (or any
