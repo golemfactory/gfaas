@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use std::{
-    env, fs, io,
+    str, env, fs, io,
     path::Path,
     process::{Command, Stdio},
 };
@@ -78,8 +78,17 @@ fn build(release: bool, args: &Vec<String>) -> Result<()> {
         .arg("metadata")
         .output()
         .context("running 'cargo metadata' command")?;
-    let metadata: serde_json::Value = serde_json::from_slice(&cmd_out.stdout)
-        .context("deserializing JSON from 'cargo metadata' output")?;
+    let metadata: serde_json::Value = match serde_json::from_slice(&cmd_out.stdout) {
+        Ok(metadata) => metadata,
+        Err(_) => {
+            // Spit out output from the `cargo metadata` as it might contain hints as to what
+            // the error might be.
+            let stderr = cmd_out.stderr;
+            let stderr = str::from_utf8(&stderr).context("valid UTF8 in 'cargo metadata' output")?;
+            eprintln!("{}", stderr);
+            bail!("'cargo metadata' command failed");
+        }
+    };
     let workspace_root = metadata["workspace_root"]
         .as_str()
         .ok_or(anyhow!("metadata['workspace_root'] is not a UTF8 string"))?;

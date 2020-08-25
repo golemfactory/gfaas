@@ -247,7 +247,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 // 4. Run
                 let requestor = Requestor::new(
                     "custom",
-                    WebAssembly((1, 0, 0).into()),
+                    WebAssembly((0, 1, 0).into()),
                     ya_requestor_sdk::Package::Archive(package_path)
                 )
                 .with_max_budget_gnt(#budget)
