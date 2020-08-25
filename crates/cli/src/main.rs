@@ -1,8 +1,9 @@
 use anyhow::{anyhow, bail, Context, Result};
 use std::{
-    str, env, fs, io,
+    env, fs, io,
     path::Path,
     process::{Command, Stdio},
+    str,
 };
 use structopt::{clap::AppSettings, StructOpt};
 
@@ -84,7 +85,8 @@ fn build(release: bool, args: &Vec<String>) -> Result<()> {
             // Spit out output from the `cargo metadata` as it might contain hints as to what
             // the error might be.
             let stderr = cmd_out.stderr;
-            let stderr = str::from_utf8(&stderr).context("valid UTF8 in 'cargo metadata' output")?;
+            let stderr =
+                str::from_utf8(&stderr).context("valid UTF8 in 'cargo metadata' output")?;
             eprintln!("{}", stderr);
             bail!("'cargo metadata' command failed");
         }
