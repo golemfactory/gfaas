@@ -1,6 +1,6 @@
 [package]
 name = "gfaas-cli"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Jakub Konka <kubkon@golem.network>"]
 edition = "2018"
 license = "GPL-3.0"
