@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use std::{
     env, fs, io,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     str,
 };
@@ -65,13 +65,8 @@ fn main() {
 }
 
 fn build(release: bool, args: &Vec<String>) -> Result<()> {
-    let cwd = env::current_dir().context("fetching cwd from env")?;
-
-    // Specify output dir
-    let out_dir = cwd.join(format!(
-        "target/{}",
-        if release { "release" } else { "debug" }
-    ));
+    let profile = if release { "release" } else { "debug" };
+    let out_dir = Path::new("target").join(&profile);
 
     // Fetch cargo manifest path for the root project
     let mut cmd = Command::new("cargo");
@@ -96,7 +91,7 @@ fn build(release: bool, args: &Vec<String>) -> Result<()> {
         .ok_or(anyhow!("metadata['workspace_root'] is not a UTF8 string"))?;
 
     // Create cargo package with gfaas funcs
-    let module_path = Path::new(&out_dir).join("gfaas_modules");
+    let module_path = out_dir.join("gfaas_modules");
     let bin_path = module_path.join("src").join("bin");
     if let Err(err) = fs::create_dir_all(&bin_path) {
         match err.kind() {
@@ -163,35 +158,58 @@ fn build(release: bool, args: &Vec<String>) -> Result<()> {
 
     // Next, run cargo build --target=wasm32-wasi on gfaas_modules crate.
     let mut cmd = Command::new("cargo");
-    cmd.arg("install")
-        .arg("--target=wasm32-wasi")
+    cmd.arg("build")
         .arg("--bins")
-        .arg("--force")
-        .arg("--root")
-        .arg(out_dir)
+        .arg("--target=wasm32-wasi")
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .current_dir(module_path);
-    if !release {
-        cmd.arg("--debug");
+        .current_dir(&module_path);
+    if release {
+        cmd.arg("--release");
     }
     let _ = cmd.output().context("failed to build the gfaas modules")?;
+
+    // Copy Wasm binaries next to the binary proper
+    let from_dir = module_path
+        .join("target")
+        .join("wasm32-wasi")
+        .join(&profile);
+    let mut entries = vec![];
+    for entry in fs::read_dir(&from_dir)? {
+        let entry = entry?;
+        let entry_path = entry.path();
+
+        if let Some(ext) = entry_path.extension() {
+            if ext == "wasm" {
+                entries.push(PathBuf::from(entry_path.file_name().unwrap()));
+            }
+        }
+    }
+
+    if entries.is_empty() {
+        bail!("no Wasm modules were generated!");
+    }
+
+    for entry in entries {
+        let from_path = from_dir.join(&entry);
+        let to_path = out_dir.join(entry);
+        fs::copy(&from_path, &to_path).with_context(|| {
+            format!(
+                "copying final Wasm artifact to main output dir: '{}' -> '{}'",
+                from_path.display(),
+                to_path.display(),
+            )
+        })?;
+    }
 
     Ok(())
 }
 
 fn run(release: bool, args: &Vec<String>) -> Result<()> {
-    let cwd = env::current_dir().context("fetching cwd from env")?;
-
     // We need to run cargo build first so that the Wasm artifacts are properly
     // generated.
     build(release, args)?;
 
-    // Specify output dir
-    let out_dir = cwd.join(format!(
-        "target/{}",
-        if release { "release" } else { "debug" }
-    ));
     // Run cargo run
     let mut cmd = Command::new("cargo");
     cmd.arg("run")
@@ -203,7 +221,6 @@ fn run(release: bool, args: &Vec<String>) -> Result<()> {
                 .filter(|x| x.as_str() != "--release" && !x.contains("--target-dir")),
         )
         .env("CARGO_TARGET_DIR", "target")
-        .env("GFAAS_OUT_DIR", &out_dir)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
     if release {
@@ -215,15 +232,12 @@ fn run(release: bool, args: &Vec<String>) -> Result<()> {
 }
 
 fn clean(args: &Vec<String>) -> Result<()> {
-    let cwd = env::current_dir().context("fetching cwd from env")?;
-
     let mut cmd = Command::new("cargo");
     cmd.arg("clean")
         .args(args.iter().filter(|x| !x.contains("--target-dir")))
         .env("CARGO_TARGET_DIR", "target")
         .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .current_dir(cwd);
+        .stderr(Stdio::inherit());
     let _ = cmd.output().context("failed to clean the project")?;
 
     Ok(())

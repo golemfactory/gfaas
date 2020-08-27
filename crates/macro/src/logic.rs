@@ -141,7 +141,6 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     });
     let budget = params.budget.unwrap_or(5);
     // Compute out dir
-    let out_dir = env::var("GFAAS_OUT_DIR").expect("GFAAS_OUT_DIR should be defined");
     let input_data = args_pats[0].clone();
     let output = quote! {
         #fn_vis async fn #fn_ident(#fn_args) -> #fn_ret {
@@ -156,23 +155,26 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
             };
 
             if let RunType::Local = run_type {
-                use gfaas::__private::anyhow::Context;
+                use gfaas::__private::anyhow::{anyhow, Context};
                 use gfaas::__private::tokio::task;
                 use gfaas::__private::tempfile::tempdir;
                 use gfaas::__private::wasi_rt;
                 use gfaas::__private::package::Package;
                 use gfaas::__private::serde_json;
-                use std::{fs, path::Path};
+                use std::{fs, env, path::PathBuf};
 
                 task::spawn_blocking(move || {
                     // 0. Create temp workspace
                     let workspace = tempdir().context("creating temp dir")?;
-                    println!("{}", workspace.path().display());
 
                     // 1. Prepare zip archive
-                    let package_path = workspace.path().join("pkg.zip");
+                    let exe_path = env::current_exe().context("extracting path to the current exe")?;
+                    let parent = exe_path
+                        .parent()
+                        .ok_or_else(|| anyhow!("path to the current exe without parent: '{}'", exe_path.display()))?;
                     let module_name = format!("{}", stringify!(#fn_ident));
-                    let wasm = Path::new(#out_dir).join("bin").join(format!("{}.wasm", module_name));
+                    let wasm = parent.join(format!("{}.wasm", module_name));
+                    let package_path = workspace.path().join("pkg.zip");
                     let mut package = Package::new();
                     package.add_module_from_path(wasm).context("adding Wasm module from path")?;
                     package.write(&package_path).context("saving Yagna zip package to file")?;
@@ -222,7 +224,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 use gfaas::__private::ya_requestor_sdk::{self, commands, CommandList, Image::WebAssembly, Requestor};
                 use gfaas::__private::ya_agreement_utils::{constraints, ConstraintKey, Constraints};
                 use gfaas::__private::serde_json;
-                use std::{fs, path::Path, collections::HashMap};
+                use std::{fs, env, path::{Path, PathBuf}, collections::HashMap};
 
                 // 0. Load env vars
                 dotenv::from_path(Path::new(#datadir).join(".env")).context("datadir not found")?;
@@ -231,9 +233,13 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 let workspace = tempdir().context("creating temp dir")?;
 
                 // 2. Prepare package
-                let package_path = workspace.path().join("pkg.zip");
+                let exe_path = env::current_exe().context("extracting path to the current exe")?;
+                let parent = exe_path
+                    .parent()
+                    .ok_or_else(|| anyhow!("path to the current exe without parent: '{}'", exe_path.display()))?;
                 let module_name = format!("{}", stringify!(#fn_ident));
-                let wasm = Path::new(#out_dir).join("bin").join(format!("{}.wasm", module_name));
+                let wasm = parent.join(format!("{}.wasm", module_name));
+                let package_path = workspace.path().join("pkg.zip");
                 let mut package = Package::new();
                 package.add_module_from_path(wasm).context("adding Wasm module from path")?;
                 package.write(&package_path).context("saving Yagna zig package to file")?;
@@ -320,6 +326,8 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     };
 
     // push body of the function into a Wasm module
+    let out_dir = env::var("GFAAS_OUT_DIR")
+        .expect("GFAAS_OUT_DIR should be defined. Did you build the project with gfaas tool?");
     let out_path = Path::new(&out_dir)
         .join("gfaas_modules")
         .join("src")
