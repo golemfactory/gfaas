@@ -7,6 +7,7 @@
 
   <p>
     <a href="https://github.com/golemfactory/gfaas/actions?query=branch%3Amaster"><img src="https://github.com/golemfactory/gfaas/workflows/Continuous%20Integration/badge.svg" alt="Build status" /></a>
+    <a href="https://docs.rs/gfaas"><img src="https://docs.rs/gfaas/badge.svg" alt="Documentation Status" /></a>
   </p>
 
   <h3>

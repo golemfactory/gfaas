@@ -1,0 +1,22 @@
+[package]
+name = "bellman"
+version = "0.1.0"
+authors = ["Jakub Konka <jakub.konka@golem.network>"]
+edition = "2018"
+
+[dependencies]
+gfaas = { path = "../../" }
+anyhow = "1"
+actix-rt = "1"
+base64 = "0.12"
+bellman = "0.6"
+pairing = "0.16"
+ff = "0.6"
+rand = "0.7"
+sha2 = "0.9"
+structopt = "0.3"
+
+[gfaas_dependencies]
+bellman = { version = "0.6", default-features = false, features = ["groth16"] }
+pairing = "0.16"
+rand = "0.7"

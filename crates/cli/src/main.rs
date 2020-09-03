@@ -64,7 +64,7 @@ fn main() {
     }
 }
 
-fn build(release: bool, args: &Vec<String>) -> Result<()> {
+fn build(release: bool, args: &[String]) -> Result<()> {
     let profile = if release { "release" } else { "debug" };
     let out_dir = Path::new("target").join(&profile);
 
@@ -115,21 +115,27 @@ fn build(release: bool, args: &Vec<String>) -> Result<()> {
         [package]
         name = "gfaas_modules"
         version = "0.1.0"
+        edition = "2018"
     };
 
+    gfaas_toml.as_table_mut().unwrap().insert(
+        "dependencies".to_owned(),
+        toml::toml! {
+            serde_json = "1"
+        },
+    );
     if let Some(deps) = manifest_toml.remove("gfaas_dependencies") {
-        gfaas_toml
+        let gfaas_deps = gfaas_toml
             .as_table_mut()
             .unwrap()
-            .insert("dependencies".to_owned(), deps.into());
-    // TODO insert serde_json dep
-    } else {
-        gfaas_toml.as_table_mut().unwrap().insert(
-            "dependencies".to_owned(),
-            toml::toml! {
-                serde_json = "1"
-            },
-        );
+            .get_mut("dependencies")
+            .unwrap()
+            .as_table_mut()
+            .unwrap();
+
+        for key in deps.as_table().unwrap().keys() {
+            gfaas_deps.insert(key.to_owned(), deps[key].clone());
+        }
     }
 
     let gfaas_toml =
@@ -205,10 +211,10 @@ fn build(release: bool, args: &Vec<String>) -> Result<()> {
     Ok(())
 }
 
-fn run(release: bool, args: &Vec<String>) -> Result<()> {
+fn run(release: bool, args: &[String]) -> Result<()> {
     // We need to run cargo build first so that the Wasm artifacts are properly
     // generated.
-    build(release, args)?;
+    build(release, &[])?;
 
     // Run cargo run
     let mut cmd = Command::new("cargo");
@@ -231,7 +237,7 @@ fn run(release: bool, args: &Vec<String>) -> Result<()> {
     Ok(())
 }
 
-fn clean(args: &Vec<String>) -> Result<()> {
+fn clean(args: &[String]) -> Result<()> {
     let mut cmd = Command::new("cargo");
     cmd.arg("clean")
         .args(args.iter().filter(|x| !x.contains("--target-dir")))

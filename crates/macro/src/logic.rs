@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use std::{env, fs::File, io::Write, path::Path};
+use std::{collections::VecDeque, env, fs::File, io::Write, path::Path};
 use syn::{
     parenthesized,
     parse::{Parse, ParseStream},
@@ -52,6 +52,28 @@ fn validate_extract_args(input: impl IntoIterator<Item = FnArg>) -> Vec<(Box<Pat
         args.push((pat, ty));
     }
     args
+}
+
+fn validate_extract_return_type(output: &ReturnType) -> Box<Type> {
+    match output {
+        ReturnType::Default => panic!("functions returning unit type () are unsupported"),
+        ReturnType::Type(_, tt) => tt.clone(),
+    }
+}
+
+fn is_bytes(input: &Type) -> bool {
+    match input {
+        Type::Path(path) => {
+            // TODO there has to be a better way of checking whether input is of type Vec<u8>
+            let path = &path.path;
+            if let Some(ident) = path.get_ident() {
+                ident.to_string() == "u8"
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
 }
 
 #[derive(Debug)]
@@ -124,13 +146,8 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let fn_vis = f.vis;
     let fn_ident = f.ident;
     let fn_args = f.args;
+    let return_type = validate_extract_return_type(&f.ret);
 
-    let fn_ret = match f.ret {
-        ReturnType::Default => panic!("unit return type () is unsupported"),
-        ReturnType::Type(_, tt) => quote!(gfaas::__private::anyhow::Result<#tt>),
-    };
-
-    let args_pats: Vec<_> = args.iter().map(|(pat, _)| pat.clone()).collect();
     let datadir = params.datadir.unwrap_or_else(|| {
         appdirs::user_data_dir(Some("golem"), Some("golem"), false)
             .expect("existing project app datadirs")
@@ -140,10 +157,58 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
             .to_owned()
     });
     let budget = params.budget.unwrap_or(5);
-    // Compute out dir
-    let input_data = args_pats[0].clone();
+
+    let mut local_input_args = vec![];
+    let mut remote_input_args = vec![];
+    let input_file_names: Vec<_> = (0..args.len()).map(|i| format!("in{}", i)).collect();
+    for (name, (arg, tt)) in input_file_names.iter().zip(args.iter()) {
+        let serialized = if is_bytes(tt) {
+            quote!(&#arg)
+        } else {
+            quote!(serde_json::to_vec(&#arg).context("serializing input data")?)
+        };
+        let ts = quote! {
+            let input_path = vol.join(#name);
+            let serialized = #serialized;
+            fs::write(&input_path, serialized).context("writing serialized data to file")?;
+        };
+        local_input_args.push(ts);
+
+        let ts = quote! {
+            let input_path = workspace.path().join(#name);
+            let serialized = #serialized;
+            fs::write(&input_path, serialized).context("writing serialized data to file")?;
+        };
+        remote_input_args.push(ts);
+    }
+
+    let mut local_input_paths = vec![];
+    let mut remote_input_paths = vec![];
+    let mut remote_input_names = vec![];
+    for name in input_file_names {
+        let ts = quote! {
+            ["/workdir/", #name].join(""),
+        };
+        local_input_paths.push(ts);
+
+        let ts = quote! {
+            format!("/workdir/{}", #name)
+        };
+        remote_input_names.push(ts);
+
+        let ts = quote! {
+            upload(workspace.path().join(#name), format!("/workdir/{}", #name));
+        };
+        remote_input_paths.push(ts);
+    }
+    let output_serialized = if is_bytes(&return_type) {
+        quote!(output_data)
+    } else {
+        quote!(serde_json::to_vec(&output_data).context("deserializing output data")?)
+    };
+
     let output = quote! {
-        #fn_vis async fn #fn_ident(#fn_args) -> #fn_ret {
+        #fn_vis async fn #fn_ident(#fn_args) -> gfaas::__private::anyhow::Result<#return_type> {
             enum RunType {
                 Local,
                 Golem,
@@ -190,27 +255,24 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                         .map(|vol| workspace.path().join(&vol.name))
                         .context("extracting workdir path from Yagna package")?;
 
-                    let input_file_name = "in".to_owned();
                     let output_file_name = "out".to_owned();
-                    let input_path = vol.join(&input_file_name);
                     let output_path = vol.join(&output_file_name);
-                    let serialized = serde_json::to_vec(&#input_data).context("serializing input data")?;
-                    fs::write(&input_path, serialized).context("writing serialized data to file")?;
+
+                    #(#local_input_args)*
 
                     // 3. Run
                     ya_runtime_wasi::run(
                         workspace.path(),
                         &module_name,
                         vec![
-                            ["/workdir/", &input_file_name].join(""),
+                            #(#local_input_paths)*
                             ["/workdir/", &output_file_name].join(""),
                         ],
                     ).context("executing Yagna run command")?;
 
                     // 4. Collect the results
                     let output_data = fs::read(output_path).context("reading output data from file")?;
-                    let res = serde_json::from_slice(&output_data).context("deserializing output data")?;
-
+                    let res = #output_serialized;
                     Ok(res)
                 }).await?
             } else {
@@ -244,10 +306,9 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 package.write(&package_path).context("saving Yagna zig package to file")?;
 
                 // 3. Prepare workspace
-                let input_path = workspace.path().join("in");
                 let output_path = workspace.path().join("out");
-                let serialized = serde_json::to_vec(&#input_data).context("serializing input data")?;
-                fs::write(&input_path, serialized).context("writing serialized data to file")?;
+
+                #(#remote_input_args)*
 
                 // 4. Run
                 let requestor = Requestor::new(
@@ -262,8 +323,8 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                     "golem.com.pricing.model" == "linear",
                 ])
                 .with_tasks(vec![commands! {
-                    upload(&input_path, "/workdir/in");
-                    run(module_name, "/workdir/in", "/workdir/out");
+                    #(#remote_input_paths)*
+                    run(module_name, #(#remote_input_names),*, "/workdir/out");
                     download("/workdir/out", &output_path);
                 }].into_iter())
                 .on_completed(|outputs: HashMap<String, String>| {
@@ -279,32 +340,40 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 });
                 select(requestor.boxed_local(), ctrl_c.boxed_local()).await.into_inner().0.context("running task on Yagna")?;
                 let output_data = fs::read(&output_path).context("reading output data from file")?;
-                let res = serde_json::from_slice(&output_data).context("deserializing output data")?;
-
+                let res = #output_serialized;
                 Ok(res)
             }
         }
     };
 
     let mut inputs = vec![];
-    let mut input_args = vec![];
-    for i in 0..args.len() {
+    let mut input_args = VecDeque::with_capacity(args.len());
+    for (i, (_, tt)) in args.iter().enumerate() {
         let in_ident = format_ident!("in{}", i);
+        let deserialize = if is_bytes(tt) {
+            quote!(#in_ident)
+        } else {
+            quote!(serde_json::from_slice(&#in_ident).unwrap())
+        };
         let ts = quote! {
             let next_arg = args.pop().unwrap();
-            let mut f = File::open(next_arg).unwrap();
-            let mut #in_ident = Vec::new();
-            f.read_to_end(&mut #in_ident).unwrap();
-            let #in_ident = serde_json::from_slice(&#in_ident).unwrap();
+            let #in_ident = fs::read(next_arg).unwrap();
+            let #in_ident = #deserialize;
         };
         inputs.push(ts);
-        input_args.push(quote!(#in_ident));
+        input_args.push_front(quote!(#in_ident));
     }
+    let output_serialized = if is_bytes(&return_type) {
+        quote!(res)
+    } else {
+        quote!(serde_json::to_vec(&res).unwrap())
+    };
+    let args_in_order = input_args.as_slices().0;
     let contents = quote! {
         #preserved
 
         fn main() {
-            use std::fs::File;
+            use std::fs;
             use std::io::{Read, Write};
             use std::env;
 
@@ -312,11 +381,10 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
             let out = args.pop().unwrap();
             #(#inputs)*
 
-            let res = #fn_ident(#(#input_args),*);
-            let serialized = serde_json::to_vec(&res).unwrap();
+            let res = #fn_ident(#(#args_in_order),*);
+            let serialized = #output_serialized;
 
-            let mut f = File::create(out).unwrap();
-            f.write_all(&serialized).unwrap();
+            fs::write(out, &serialized).unwrap();
         }
     };
 
