@@ -8,7 +8,7 @@
 //! ```toml
 //! # Cargo.toml
 //! [dependencies]
-//! gfaas = { git = "https://github.com/golemfactory/gfaas" }
+//! gfaas = "0.1"
 //! ```
 //!
 //! You can now annotate some heavy-workload function to be distributed on the Golem Network
