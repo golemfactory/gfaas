@@ -127,9 +127,9 @@ pub mod __private {
     pub use serde_json;
     pub use tempfile;
     pub use tokio;
-    pub use wasi_rt;
     pub use ya_agreement_utils;
-    pub use ya_requestor_sdk;
+    pub use ya_runtime_wasi;
+    pub use yarapi;
 
     #[allow(unused)]
     pub mod package {

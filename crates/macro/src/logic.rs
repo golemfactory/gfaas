@@ -158,7 +158,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 use gfaas::__private::anyhow::{anyhow, Context};
                 use gfaas::__private::tokio::task;
                 use gfaas::__private::tempfile::tempdir;
-                use gfaas::__private::wasi_rt;
+                use gfaas::__private::ya_runtime_wasi;
                 use gfaas::__private::package::Package;
                 use gfaas::__private::serde_json;
                 use std::{fs, env, path::PathBuf};
@@ -180,13 +180,12 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                     package.write(&package_path).context("saving Yagna zip package to file")?;
 
                     // 2. Deploy
-                    wasi_rt::deploy(workspace.path(), &package_path).context("deploying Yagna package")?;
-                    wasi_rt::start(workspace.path()).context("executing Yagna start command")?;
+                    ya_runtime_wasi::deploy(workspace.path(), &package_path).context("deploying Yagna package")?;
+                    ya_runtime_wasi::start(workspace.path()).context("executing Yagna start command")?;
 
-                    let deployment = wasi_rt::DeployFile::load(workspace.path()).context("loading deployed Yagna package")?;
+                    let deployment = ya_runtime_wasi::DeployFile::load(workspace.path()).context("loading deployed Yagna package")?;
                     let vol = deployment
-                        .vols
-                        .iter()
+                        .vols()
                         .find(|vol| vol.path.starts_with("/workdir"))
                         .map(|vol| workspace.path().join(&vol.name))
                         .context("extracting workdir path from Yagna package")?;
@@ -199,7 +198,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                     fs::write(&input_path, serialized).context("writing serialized data to file")?;
 
                     // 3. Run
-                    wasi_rt::run(
+                    ya_runtime_wasi::run(
                         workspace.path(),
                         &module_name,
                         vec![
@@ -217,11 +216,11 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
             } else {
                 use gfaas::__private::anyhow::{Context, anyhow};
                 use gfaas::__private::dotenv;
-                use gfaas::__private::futures::{future::FutureExt, pin_mut, select};
+                use gfaas::__private::futures::future::{select, FutureExt};
                 use gfaas::__private::tokio::task;
                 use gfaas::__private::tempfile::tempdir;
                 use gfaas::__private::package::Package;
-                use gfaas::__private::ya_requestor_sdk::{self, commands, CommandList, Image::WebAssembly, Requestor};
+                use gfaas::__private::yarapi::{commands, requestor::{self, CommandList, Image::WebAssembly, Requestor}};
                 use gfaas::__private::ya_agreement_utils::{constraints, ConstraintKey, Constraints};
                 use gfaas::__private::serde_json;
                 use std::{fs, env, path::{Path, PathBuf}, collections::HashMap};
@@ -254,7 +253,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 let requestor = Requestor::new(
                     "custom",
                     WebAssembly((0, 1, 0).into()),
-                    ya_requestor_sdk::Package::Archive(package_path)
+                    requestor::Package::Archive(package_path)
                 )
                 .with_max_budget_gnt(#budget)
                 .with_constraints(constraints![
@@ -270,23 +269,19 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 .on_completed(|outputs: HashMap<String, String>| {
                     println!("{:#?}", outputs);
                 })
-                .run()
-                .fuse();
+                .run();
 
-                let ctrl_c = actix_rt::signal::ctrl_c().fuse();
-
-                pin_mut!(requestor, ctrl_c);
-
-                select! {
-                    comp_res = requestor => {
-                        let _ = comp_res.context("running task on Yagna")?;
-                        let output_data = fs::read(&output_path).context("reading output data from file")?;
-                        let res = serde_json::from_slice(&output_data).context("deserializing output data")?;
-
-                        Ok(res)
+                let ctrl_c = actix_rt::signal::ctrl_c().then(|r| async move {
+                    match r {
+                        Ok(_) => Err(anyhow!("interrupted: ctrl-c detected!")),
+                        Err(e) => Err(anyhow::Error::from(e)),
                     }
-                    _ = ctrl_c => Err(anyhow!("interrupted: ctrl-c detected!")),
-                }
+                });
+                select(requestor.boxed_local(), ctrl_c.boxed_local()).await.into_inner().0.context("running task on Yagna")?;
+                let output_data = fs::read(&output_path).context("reading output data from file")?;
+                let res = serde_json::from_slice(&output_data).context("deserializing output data")?;
+
+                Ok(res)
             }
         }
     };
