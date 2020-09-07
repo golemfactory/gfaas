@@ -3,6 +3,8 @@ name = "gfaas-macro"
 version = "0.1.0"
 authors = ["Jakub Konka <kubkon@golem.network>"]
 edition = "2018"
+license = "GPL-3.0"
+description = "Proc-macro logic used by gfaas crate"
 
 [lib]
 proc-macro = true
