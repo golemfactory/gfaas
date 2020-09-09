@@ -204,7 +204,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let output_serialized = if is_bytes(&return_type) {
         quote!(output_data)
     } else {
-        quote!(serde_json::to_vec(&output_data).context("deserializing output data")?)
+        quote!(serde_json::from_slice(&output_data).context("deserializing output data")?)
     };
 
     let output = quote! {
@@ -374,7 +374,6 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
 
         fn main() {
             use std::fs;
-            use std::io::{Read, Write};
             use std::env;
 
             let mut args: Vec<_> = env::args().collect();
