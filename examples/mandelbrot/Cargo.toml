@@ -1,0 +1,15 @@
+[package]
+name = "mandelbrot"
+version = "0.1.0"
+authors = ["Jakub Konka <kubkon@golem.network>"]
+edition = "2018"
+
+[dependencies]
+actix-rt = "1"
+anyhow = "1"
+gfaas = "0.1"
+futures = "0.3"
+png = "0.16"
+
+[gfaas_dependencies]
+num-complex = "0.3"
