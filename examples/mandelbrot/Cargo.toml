@@ -10,6 +10,7 @@ anyhow = "1"
 gfaas = "0.1"
 futures = "0.3"
 png = "0.16"
+structopt = "0.3"
 
 [gfaas_dependencies]
 num-complex = "0.3"
