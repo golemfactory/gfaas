@@ -3,7 +3,10 @@ use gfaas::remote_fn;
 use std::{fs::File, io::BufWriter};
 use structopt::StructOpt;
 
-#[remote_fn]
+#[remote_fn(
+    datadir = "/Users/kubkon/dev/yagna/ya-req",
+    budget = 1000,
+)]
 fn compute_rectangle(start_y: u32, end_y: u32, width: u32, height: u32) -> Vec<u32> {
     use num_complex::Complex;
 
@@ -64,10 +67,16 @@ async fn main() -> anyhow::Result<()> {
 
     let opts = Opt::from_args();
 
+    let max_row_size = (opts.height as f64 / opts.in_parallel as f64).ceil() as u32;
+
     let mut futures = vec![];
     for n in 0..opts.in_parallel {
-        let start_y = n * opts.height / opts.in_parallel;
-        let end_y = start_y + opts.height / opts.in_parallel;
+        let start_y = n * max_row_size;
+        let end_y = if start_y + max_row_size > opts.height {
+            opts.height
+        } else {
+            start_y + max_row_size
+        };
         futures.push(
             compute_rectangle(start_y, end_y, opts.width, opts.height).map_ok(move |x| (n, x)),
         );
