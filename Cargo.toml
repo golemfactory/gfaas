@@ -31,5 +31,6 @@ members = [
 exclude = [
     "examples/bellman",
     "examples/hello",
+    "examples/mandelbrot",
     "examples/sum",
 ]
