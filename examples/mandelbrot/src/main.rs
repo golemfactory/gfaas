@@ -1,12 +1,10 @@
-use futures::future::{try_join_all, TryFutureExt};
+use anyhow::Result;
+use futures::stream::{self, TryStreamExt};
 use gfaas::remote_fn;
 use std::{fs::File, io::BufWriter};
 use structopt::StructOpt;
 
-#[remote_fn(
-    datadir = "/Users/kubkon/dev/yagna/ya-req",
-    budget = 1000,
-)]
+#[remote_fn(datadir = "/Users/kubkon/dev/yagna/ya-req", budget = 1000)]
 fn compute_rectangle(start_y: u32, end_y: u32, width: u32, height: u32) -> Vec<u32> {
     use num_complex::Complex;
 
@@ -62,31 +60,38 @@ struct Opt {
 }
 
 #[actix_rt::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<()> {
     const MAX_ITER: u32 = 255;
 
     let opts = Opt::from_args();
 
     let max_row_size = (opts.height as f64 / opts.in_parallel as f64).ceil() as u32;
+    let width = opts.width;
+    let height = opts.height;
 
-    let mut futures = vec![];
+    let mut chunks: Vec<Result<_>> = vec![];
     for n in 0..opts.in_parallel {
         let start_y = n * max_row_size;
-        let end_y = if start_y + max_row_size > opts.height {
-            opts.height
+        let end_y = if start_y + max_row_size > height {
+            height
         } else {
             start_y + max_row_size
         };
-        futures.push(
-            compute_rectangle(start_y, end_y, opts.width, opts.height).map_ok(move |x| (n, x)),
-        );
+        chunks.push(Ok((n, start_y, end_y)));
     }
 
-    let mut output = try_join_all(futures).await?;
+    let chunks = stream::iter(chunks);
+    let output = chunks.try_fold(Vec::new(), |mut acc, (n, start_y, end_y)| async move {
+        let rect = compute_rectangle(start_y, end_y, width, height).await?;
+        acc.push((n, rect));
+        Ok(acc)
+    });
+    let mut output = output.await?;
+
     let file = File::create("mandelbrot.png")?;
     let mut w = BufWriter::new(file);
 
-    let mut encoder = png::Encoder::new(&mut w, opts.width, opts.height);
+    let mut encoder = png::Encoder::new(&mut w, width, height);
     encoder.set_color(png::ColorType::Grayscale);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;
