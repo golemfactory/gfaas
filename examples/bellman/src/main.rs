@@ -1,4 +1,3 @@
-use gfaas::remote_fn;
 use bellman::{
     gadgets::{
         boolean::{AllocatedBit, Boolean},
@@ -7,6 +6,7 @@ use bellman::{
     },
     groth16, Circuit, ConstraintSystem, SynthesisError,
 };
+use gfaas::remote_fn;
 use pairing::{bls12_381::Bls12, Engine};
 use rand::rngs::OsRng;
 use std::{
@@ -15,10 +15,7 @@ use std::{
 };
 use structopt::StructOpt;
 
-#[remote_fn(
-    datadir = "/Users/kubkon/dev/yagna/ya-req",
-    budget = 1000,
-)]
+#[remote_fn(datadir = "/Users/kubkon/dev/yagna/ya-req", budget = 1000)]
 fn generate_proof_on_golem(params: Vec<u8>, preimage: Vec<u8>) -> Vec<u8> {
     use bellman::{
         gadgets::{
@@ -82,7 +79,9 @@ fn generate_proof_on_golem(params: Vec<u8>, preimage: Vec<u8>) -> Vec<u8> {
             let preimage_bits = bit_values
                 .into_iter()
                 .enumerate()
-                .map(|(i, b)| AllocatedBit::alloc(cs.namespace(|| format!("preimage bit {}", i)), b))
+                .map(|(i, b)| {
+                    AllocatedBit::alloc(cs.namespace(|| format!("preimage bit {}", i)), b)
+                })
                 .map(|b| b.map(Boolean::from))
                 .collect::<Result<Vec<_>, _>>()?;
 

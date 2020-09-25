@@ -1,11 +1,8 @@
 use anyhow::Result;
-use gfaas::remote_fn;
 use futures::stream::{self, TryStreamExt};
+use gfaas::remote_fn;
 
-#[remote_fn(
-    datadir = "/Users/kubkon/dev/yagna/ya-req",
-    budget = 100,
-)]
+#[remote_fn(datadir = "/Users/kubkon/dev/yagna/ya-req", budget = 100)]
 fn partial_sum(r#in: Vec<u64>) -> u64 {
     r#in.into_iter().sum()
 }
