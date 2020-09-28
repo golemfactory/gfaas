@@ -5,5 +5,5 @@ authors = ["Jakub Konka <jakub.konka@golem.network>"]
 edition = "2018"
 
 [dependencies]
-gfaas = { path = "../../", version = "0.1" }
+gfaas = { path = "../../", version = "0.2" }
 actix-rt = "1"

@@ -61,21 +61,6 @@ fn validate_extract_return_type(output: &ReturnType) -> Box<Type> {
     }
 }
 
-fn is_bytes(input: &Type) -> bool {
-    match input {
-        Type::Path(path) => {
-            // TODO there has to be a better way of checking whether input is of type Vec<u8>
-            let path = &path.path;
-            if let Some(ident) = path.get_ident() {
-                ident.to_string() == "u8"
-            } else {
-                false
-            }
-        }
-        _ => false,
-    }
-}
-
 #[derive(Debug)]
 pub struct GwasmAttr {
     ident: Ident,
@@ -161,22 +146,17 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let mut local_input_args = vec![];
     let mut remote_input_args = vec![];
     let input_file_names: Vec<_> = (0..args.len()).map(|i| format!("in{}", i)).collect();
-    for (name, (arg, tt)) in input_file_names.iter().zip(args.iter()) {
-        let serialized = if is_bytes(tt) {
-            quote!(&#arg)
-        } else {
-            quote!(serde_json::to_vec(&#arg).context("serializing input data")?)
-        };
+    for (name, (arg, _)) in input_file_names.iter().zip(args.iter()) {
         let ts = quote! {
             let input_path = vol.join(#name);
-            let serialized = #serialized;
+            let serialized = serde_json::to_vec(&#arg).context("serializing input data")?;
             fs::write(&input_path, serialized).context("writing serialized data to file")?;
         };
         local_input_args.push(ts);
 
         let ts = quote! {
             let input_path = workspace.path().join(#name);
-            let serialized = #serialized;
+            let serialized = serde_json::to_vec(&#arg).context("serializing input data")?;
             fs::write(&input_path, serialized).context("writing serialized data to file")?;
         };
         remote_input_args.push(ts);
@@ -201,11 +181,6 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
         };
         remote_input_paths.push(ts);
     }
-    let output_serialized = if is_bytes(&return_type) {
-        quote!(output_data)
-    } else {
-        quote!(serde_json::from_slice(&output_data).context("deserializing output data")?)
-    };
 
     let output = quote! {
         #fn_vis async fn #fn_ident(#fn_args) -> std::result::Result<#return_type, gfaas::Error> {
@@ -272,7 +247,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
 
                     // 4. Collect the results
                     let output_data = fs::read(output_path).context("reading output data from file")?;
-                    let res = #output_serialized;
+                    let res = serde_json::from_slice(&output_data).context("deserializing output data")?;
                     Ok(res)
                 }).await?
             } else {
@@ -340,7 +315,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                 });
                 select(requestor.boxed_local(), ctrl_c.boxed_local()).await.into_inner().0.context("running task on Yagna")?;
                 let output_data = fs::read(&output_path).context("reading output data from file")?;
-                let res = #output_serialized;
+                let res = serde_json::from_slice(&output_data).context("deserializing output data")?;
                 Ok(res)
             }
         }
@@ -348,26 +323,16 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
 
     let mut inputs = vec![];
     let mut input_args = VecDeque::with_capacity(args.len());
-    for (i, (_, tt)) in args.iter().enumerate() {
+    for i in 0..args.len() {
         let in_ident = format_ident!("in{}", i);
-        let deserialize = if is_bytes(tt) {
-            quote!(#in_ident)
-        } else {
-            quote!(serde_json::from_slice(&#in_ident).unwrap())
-        };
         let ts = quote! {
             let next_arg = args.pop().unwrap();
             let #in_ident = fs::read(next_arg).unwrap();
-            let #in_ident = #deserialize;
+            let #in_ident = serde_json::from_slice(&#in_ident).unwrap();
         };
         inputs.push(ts);
         input_args.push_front(quote!(#in_ident));
     }
-    let output_serialized = if is_bytes(&return_type) {
-        quote!(res)
-    } else {
-        quote!(serde_json::to_vec(&res).unwrap())
-    };
     let args_in_order = input_args.as_slices().0;
     let contents = quote! {
         #preserved
@@ -381,7 +346,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
             #(#inputs)*
 
             let res = #fn_ident(#(#args_in_order),*);
-            let serialized = #output_serialized;
+            let serialized = serde_json::to_vec(&res).unwrap();
 
             fs::write(out, &serialized).unwrap();
         }
