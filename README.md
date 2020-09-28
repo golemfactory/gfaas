@@ -27,7 +27,7 @@ The usage is pretty straightforward. In your `Cargo.toml`, put `gfaas` as your d
 ```toml
 # Cargo.toml
 [dependencies]
-gfaas = "0.1"
+gfaas = "0.2"
 ```
 
 You can now annotate some heavy-workload function to be distributed on the Golem Network
@@ -79,7 +79,7 @@ fn hello(input: String) -> String;
 expands into
 
 ```rust,ignore
-async fn hello(input: String) -> Result<String, anyhow::Error>;
+async fn hello(input: String) -> Result<String, gfaas::Error>;
 ```
 
 Therefore, it is important to remember that you need to run the function in an async block
