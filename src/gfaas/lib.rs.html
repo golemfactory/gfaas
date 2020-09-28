@@ -224,6 +224,10 @@
 <span id="224">224</span>
 <span id="225">225</span>
 <span id="226">226</span>
+<span id="227">227</span>
+<span id="228">228</span>
+<span id="229">229</span>
+<span id="230">230</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="doccomment">//! This crate allows you to distributed heavy-workload functions to the Golem Network (or any</span>
 <span class="doccomment">//! other compatible backend when support for it is added in the future).</span>
@@ -287,7 +291,7 @@
 <span class="doccomment">//! expands into</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! ```rust,ignore</span>
-<span class="doccomment">//! async fn hello(input: String) -&gt; Result&lt;String, anyhow::Error&gt;;</span>
+<span class="doccomment">//! async fn hello(input: String) -&gt; Result&lt;String, gfaas::Error&gt;;</span>
 <span class="doccomment">//! ```</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! Therefore, it is important to remember that you need to run the function in an async block</span>
@@ -451,5 +455,9 @@
 <span class="doccomment">/// fn hello(input: String) -&gt; String;</span>
 <span class="doccomment">/// ```</span>
 <span class="kw">pub</span> <span class="kw">use</span> <span class="ident">gfaas_macro</span>::<span class="ident">remote_fn</span>;
+
+<span class="doccomment">/// Re-export of `anyhow::Error` which is the default type returned by the expanded</span>
+<span class="doccomment">/// `gfaas::remote_fn`-annotated function.</span>
+<span class="kw">pub</span> <span class="kw">use</span> <span class="ident">anyhow</span>::<span class="ident">Error</span>;
 </pre></div>
 </section><section id="search" class="content hidden"></section><section class="footer"></section><script>window.rootPath = "../../";window.currentCrate = "gfaas";</script><script src="../../main.js"></script><script src="../../source-script.js"></script><script src="../../source-files.js"></script><script defer src="../../search-index.js"></script></body></html>
