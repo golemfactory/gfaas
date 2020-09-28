@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 actix-rt = "1"
 anyhow = "1"
-gfaas = "0.1"
+gfaas = { path = "../../", version = "0.2" }
 futures = "0.3"
 png = "0.16"
 structopt = "0.3"

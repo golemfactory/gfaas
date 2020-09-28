@@ -6,10 +6,14 @@ pub fn hello(r#in: String) -> String {
 }
 
 #[actix_rt::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() {
     let r#in = "hey there gwasm";
-    let out = hello("hey there gwasm".to_string()).await?;
+    let out = match hello("hey there gwasm".to_string()).await {
+        Ok(out) => out,
+        Err(err) => {
+            eprintln!("Unexpected error occurred: {}", err);
+            return;
+        }
+    };
     println!("in: {}, out: {}", r#in, out);
-
-    Ok(())
 }

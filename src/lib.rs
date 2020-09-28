@@ -60,7 +60,7 @@
 //! expands into
 //!
 //! ```rust,ignore
-//! async fn hello(input: String) -> Result<String, anyhow::Error>;
+//! async fn hello(input: String) -> Result<String, gfaas::Error>;
 //! ```
 //!
 //! Therefore, it is important to remember that you need to run the function in an async block
@@ -224,3 +224,7 @@ pub mod __private {
 /// fn hello(input: String) -> String;
 /// ```
 pub use gfaas_macro::remote_fn;
+
+/// Re-export of `anyhow::Error` which is the default type returned by the expanded
+/// `gfaas::remote_fn`-annotated function.
+pub use anyhow::Error;
