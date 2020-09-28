@@ -1,29 +1,42 @@
-use futures::stream::{self, TryStreamExt};
+use futures::{
+    lock::Mutex,
+    stream::{self, TryStreamExt},
+};
 use gfaas::remote_fn;
+use std::sync::Arc;
 
 #[remote_fn(datadir = "/Users/kubkon/dev/yagna/ya-req", budget = 100)]
 fn partial_sum(r#in: Vec<u64>) -> u64 {
     r#in.into_iter().sum()
 }
 
+const MAX_CONCURRENT_JOBS: usize = 1; // this is fixed in yarapi >= 0.2
+
 #[actix_rt::main]
 async fn main() {
     let input: Vec<u64> = (0..100).collect();
-    let input: Vec<Result<_, gfaas::Error>> = input.chunks(10).map(|x| Ok(x)).collect();
-    let input = stream::iter(input);
+    let input = stream::iter(input.chunks(10).map(Ok));
+    let sums = Arc::new(Mutex::new(Vec::new()));
 
-    let output = input.try_fold(0u64, |acc, x| async move {
-        let out = partial_sum(x.to_vec()).await?;
-        Ok(acc + out)
+    let fut = input.try_for_each_concurrent(MAX_CONCURRENT_JOBS, |x| {
+        let sums = Arc::clone(&sums);
+        async move {
+            let sum = partial_sum(x.to_vec()).await?;
+            sums.lock().await.push(sum);
+            Ok(())
+        }
     });
 
-    let sum = match output.await {
-        Ok(sum) => sum,
-        Err(err) => {
-            eprintln!("Unexpected error occurred {}", err);
-            return;
-        }
-    };
-    assert_eq!((0..100).sum::<u64>(), sum);
-    println!("Calculated sum: {}", sum);
+    let res: Result<_, gfaas::Error> = fut.await;
+    if let Err(err) = res {
+        eprintln!("Unexpected error occurred {}", err);
+        return;
+    }
+
+    let sums =
+        Arc::try_unwrap(sums).expect("container with partial sums should be computed by now");
+    let sums = sums.into_inner();
+    let final_sum = sums.into_iter().fold(0u64, |acc, x| acc + x);
+    assert_eq!((0..100).sum::<u64>(), final_sum);
+    println!("Calculated sum: {}", final_sum);
 }

@@ -1,7 +1,10 @@
 use anyhow::Result;
-use futures::stream::{self, TryStreamExt};
+use futures::{
+    lock::Mutex,
+    stream::{self, TryStreamExt},
+};
 use gfaas::remote_fn;
-use std::{fs::File, io::BufWriter};
+use std::{fs::File, io::BufWriter, sync::Arc};
 use structopt::StructOpt;
 
 #[remote_fn(datadir = "/Users/kubkon/dev/yagna/ya-req", budget = 1000)]
@@ -59,6 +62,8 @@ struct Opt {
     in_parallel: u32,
 }
 
+const MAX_CONCURRENT_JOBS: usize = 1; // this is fixed in yarapi >= v0.2
+
 #[actix_rt::main]
 async fn main() -> Result<()> {
     const MAX_ITER: u32 = 255;
@@ -80,13 +85,18 @@ async fn main() -> Result<()> {
         chunks.push(Ok((n, start_y, end_y)));
     }
 
+    let output = Arc::new(Mutex::new(Vec::new()));
     let chunks = stream::iter(chunks);
-    let output = chunks.try_fold(Vec::new(), |mut acc, (n, start_y, end_y)| async move {
-        let rect = compute_rectangle(start_y, end_y, width, height).await?;
-        acc.push((n, rect));
-        Ok(acc)
-    });
-    let mut output = output.await?;
+    chunks
+        .try_for_each_concurrent(MAX_CONCURRENT_JOBS, |(n, start_y, end_y)| {
+            let output = Arc::clone(&output);
+            async move {
+                let rect = compute_rectangle(start_y, end_y, width, height).await?;
+                output.lock().await.push((n, rect));
+                Ok(())
+            }
+        })
+        .await?;
 
     let file = File::create("mandelbrot.png")?;
     let mut w = BufWriter::new(file);
@@ -96,6 +106,9 @@ async fn main() -> Result<()> {
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header()?;
 
+    let output = Arc::try_unwrap(output)
+        .expect("container with computation results should be fully filled in by now");
+    let mut output = output.into_inner();
     output.sort_by(|(x1, _), (x2, _)| x1.cmp(x2));
     let output: Vec<_> = output
         .into_iter()
