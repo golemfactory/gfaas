@@ -208,7 +208,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     };
 
     let output = quote! {
-        #fn_vis async fn #fn_ident(#fn_args) -> gfaas::__private::anyhow::Result<#return_type> {
+        #fn_vis async fn #fn_ident(#fn_args) -> std::result::Result<#return_type, gfaas::Error> {
             enum RunType {
                 Local,
                 Golem,
@@ -276,7 +276,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                     Ok(res)
                 }).await?
             } else {
-                use gfaas::__private::anyhow::{Context, anyhow};
+                use gfaas::__private::anyhow::{self, Context, anyhow};
                 use gfaas::__private::dotenv;
                 use gfaas::__private::futures::future::{select, FutureExt};
                 use gfaas::__private::tokio::task;

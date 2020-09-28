@@ -5,8 +5,7 @@ authors = ["Jakub Konka <jakub.konka@golem.network>"]
 edition = "2018"
 
 [dependencies]
-gfaas = "0.1"
-anyhow = "1"
+gfaas = { path = "../../", version = "0.1" }
 actix-rt = "1"
 futures = "0.3"
 serde_json = "1"
