@@ -5,15 +5,16 @@ use futures::{
 use gfaas::remote_fn;
 use std::sync::Arc;
 
-#[remote_fn(datadir = "/Users/kubkon/dev/yagna/ya-req", budget = 100)]
+#[remote_fn(budget = 100, timeout = 900, subnet = "devnet-alpha.2")]
 fn partial_sum(r#in: Vec<u64>) -> u64 {
     r#in.into_iter().sum()
 }
 
-const MAX_CONCURRENT_JOBS: usize = 1; // this is fixed in yarapi >= 0.2
+const MAX_CONCURRENT_JOBS: usize = 2;
 
 #[actix_rt::main]
 async fn main() {
+    pretty_env_logger::init();
     let input: Vec<u64> = (0..100).collect();
     let input = stream::iter(input.chunks(10).map(Ok));
     let sums = Arc::new(Mutex::new(Vec::new()));

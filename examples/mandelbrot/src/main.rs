@@ -7,7 +7,7 @@ use gfaas::remote_fn;
 use std::{fs::File, io::BufWriter, sync::Arc};
 use structopt::StructOpt;
 
-#[remote_fn(datadir = "/Users/kubkon/dev/yagna/ya-req", budget = 1000)]
+#[remote_fn(budget = 1000, timeout = 900, subnet = "devnet-alpha.2")]
 fn compute_rectangle(start_y: u32, end_y: u32, width: u32, height: u32) -> Vec<u32> {
     use num_complex::Complex;
 
@@ -62,7 +62,7 @@ struct Opt {
     in_parallel: u32,
 }
 
-const MAX_CONCURRENT_JOBS: usize = 1; // this is fixed in yarapi >= v0.2
+const MAX_CONCURRENT_JOBS: usize = 4;
 
 #[actix_rt::main]
 async fn main() -> Result<()> {

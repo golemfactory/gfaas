@@ -153,6 +153,7 @@ fn build(release: bool, args: &[String]) -> Result<()> {
             args.iter()
                 .filter(|x| x.as_str() != "--release" && !x.contains("--target-dir")),
         )
+        .envs(env::vars())
         .env("CARGO_TARGET_DIR", "target")
         .env("GFAAS_OUT_DIR", &out_dir)
         .stdout(Stdio::inherit())
@@ -226,6 +227,7 @@ fn run(release: bool, args: &[String]) -> Result<()> {
             args.iter()
                 .filter(|x| x.as_str() != "--release" && !x.contains("--target-dir")),
         )
+        .envs(env::vars())
         .env("CARGO_TARGET_DIR", "target")
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
@@ -241,6 +243,7 @@ fn clean(args: &[String]) -> Result<()> {
     let mut cmd = Command::new("cargo");
     cmd.arg("clean")
         .args(args.iter().filter(|x| !x.contains("--target-dir")))
+        .envs(env::vars())
         .env("CARGO_TARGET_DIR", "target")
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());

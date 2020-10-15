@@ -5,7 +5,8 @@ authors = ["Jakub Konka <jakub.konka@golem.network>"]
 edition = "2018"
 
 [dependencies]
-gfaas = { path = "../../", version = "0.2" }
+pretty_env_logger = "0.4"
+gfaas = { path = "../../", version = "0.3" }
 anyhow = "1"
 actix-rt = "1"
 base64 = "0.12"

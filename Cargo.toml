@@ -1,6 +1,6 @@
 [package]
 name = "gfaas"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Jakub Konka <kubkon@golem.network>"]
 edition = "2018"
 license = "LGPL-3.0"
@@ -11,16 +11,15 @@ documentation = "https://github.com/golemfactory/gfaas"
 description = "Distribute heavy-workload functions on Golem Network or other backend"
 
 [dependencies]
-gfaas-macro = { path = "crates/macro", version = "0.2" }
+gfaas-macro = { path = "crates/macro", version = "0.3.0" }
 anyhow = "1"
-dotenv = "0.15"
 futures = "0.3"
 zip = "0.5"
 serde_json = "1"
 tempfile = "3.1"
 tokio = { version = "0.2", features = ["blocking"] }
 ya-runtime-wasi = "0.2"
-yarapi = "0.1"
+yarapi = "0.2"
 ya-agreement-utils = "0.1"
 
 [workspace]

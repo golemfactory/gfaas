@@ -122,7 +122,6 @@ pub mod __private {
     //! This is a private module. The stability of this API is not guaranteed and may change
     //! without notice in the future.
     pub use anyhow;
-    pub use dotenv;
     pub use futures;
     pub use serde_json;
     pub use tempfile;

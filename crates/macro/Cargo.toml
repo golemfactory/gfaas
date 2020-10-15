@@ -1,6 +1,6 @@
 [package]
 name = "gfaas-macro"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Jakub Konka <kubkon@golem.network>"]
 edition = "2018"
 license = "LGPL-3.0"

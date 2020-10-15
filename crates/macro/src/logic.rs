@@ -89,8 +89,10 @@ impl Parse for GwasmAttrs {
 
 #[derive(Debug, Default)]
 struct GwasmParams {
-    datadir: Option<String>,
+    run_local: Option<bool>,
     budget: Option<u64>,
+    timeout: Option<u64>, // In seconds. TODO figure out a more user-friendly alts.
+    subnet: Option<String>,
 }
 
 pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStream) -> TokenStream {
@@ -99,11 +101,17 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     for attr in attrs.0.into_iter() {
         let attr_str = attr.ident.to_string();
         match attr_str.as_str() {
-            "datadir" => {
+            "run_local" => {
                 let lit = attr.value.lit;
                 match lit {
-                    Lit::Str(s) => params.datadir.replace(s.value()),
-                    x => panic!("invalid attribute value '{:#?}': expected string", x),
+                    Lit::Str(s) => params
+                        .run_local
+                        .replace(s.value().parse().expect("correct value")),
+                    Lit::Bool(b) => params.run_local.replace(b.value),
+                    x => panic!(
+                        "invalid attribute value '{:#?}': expected string or bool",
+                        x
+                    ),
                 };
             }
             "budget" => {
@@ -118,8 +126,27 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                     x => panic!("invalid attribute value '{:#?}': expected string or int", x),
                 };
             }
+            "timeout" => {
+                let lit = attr.value.lit;
+                match lit {
+                    Lit::Str(s) => params
+                        .timeout
+                        .replace(s.value().parse().expect("correct value")),
+                    Lit::Int(i) => params
+                        .timeout
+                        .replace(i.base10_parse().expect("correct value")),
+                    x => panic!("invalid attribute value '{:#?}': expected string or int", x),
+                };
+            }
+            "subnet" => {
+                let lit = attr.value.lit;
+                match lit {
+                    Lit::Str(s) => params.subnet.replace(s.value()),
+                    x => panic!("invalid attribute value '{:#?}': expected string or int", x),
+                };
+            }
             x => panic!(
-                "unexpected attribute '{}': expected 'datadir' or 'budget'",
+                "unexpected attribute '{}': expected 'budget', 'timeout', or 'subnet'",
                 x
             ),
         }
@@ -133,15 +160,10 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let fn_args = f.args;
     let return_type = validate_extract_return_type(&f.ret);
 
-    let datadir = params.datadir.unwrap_or_else(|| {
-        appdirs::user_data_dir(Some("golem"), Some("golem"), false)
-            .expect("existing project app datadirs")
-            .join("default")
-            .to_str()
-            .expect("valid Unicode path")
-            .to_owned()
-    });
+    let run_local = params.run_local.unwrap_or(false);
     let budget = params.budget.unwrap_or(5);
+    let timeout = params.timeout.unwrap_or(10 * 60);
+    let subnet = params.subnet.unwrap_or("devnet-alpha.2".to_string());
 
     let mut local_input_args = vec![];
     let mut remote_input_args = vec![];
@@ -182,32 +204,83 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
         remote_input_paths.push(ts);
     }
 
-    let output = quote! {
-        #fn_vis async fn #fn_ident(#fn_args) -> std::result::Result<#return_type, gfaas::Error> {
-            enum RunType {
-                Local,
-                Golem,
+    let output = {
+        if run_local {
+            quote! {
+                #fn_vis async fn #fn_ident(#fn_args) -> std::result::Result<#return_type, gfaas::Error> {
+                    use gfaas::__private::anyhow::{anyhow, Context};
+                    use gfaas::__private::tokio::task;
+                    use gfaas::__private::tempfile::tempdir;
+                    use gfaas::__private::ya_runtime_wasi;
+                    use gfaas::__private::package::Package;
+                    use gfaas::__private::serde_json;
+                    use std::{fs, env, path::PathBuf};
+
+                    task::spawn_blocking(move || {
+                        // 0. Create temp workspace
+                        let workspace = tempdir().context("creating temp dir")?;
+
+                        // 1. Prepare zip archive
+                        let exe_path = env::current_exe().context("extracting path to the current exe")?;
+                        let parent = exe_path
+                            .parent()
+                            .ok_or_else(|| anyhow!("path to the current exe without parent: '{}'", exe_path.display()))?;
+                        let module_name = format!("{}", stringify!(#fn_ident));
+                        let wasm = parent.join(format!("{}.wasm", module_name));
+                        let package_path = workspace.path().join("pkg.zip");
+                        let mut package = Package::new();
+                        package.add_module_from_path(wasm).context("adding Wasm module from path")?;
+                        package.write(&package_path).context("saving Yagna zip package to file")?;
+
+                        // 2. Deploy
+                        ya_runtime_wasi::deploy(workspace.path(), &package_path).context("deploying Yagna package")?;
+                        ya_runtime_wasi::start(workspace.path()).context("executing Yagna start command")?;
+
+                        let deployment = ya_runtime_wasi::DeployFile::load(workspace.path()).context("loading deployed Yagna package")?;
+                        let vol = deployment
+                            .vols()
+                            .find(|vol| vol.path.starts_with("/workdir"))
+                            .map(|vol| workspace.path().join(&vol.name))
+                            .context("extracting workdir path from Yagna package")?;
+
+                        let output_file_name = "out".to_owned();
+                        let output_path = vol.join(&output_file_name);
+
+                        #(#local_input_args)*
+
+                        // 3. Run
+                        ya_runtime_wasi::run(
+                            workspace.path(),
+                            &module_name,
+                            vec![
+                                #(#local_input_paths)*
+                                ["/workdir/", &output_file_name].join(""),
+                            ],
+                        ).context("executing Yagna run command")?;
+
+                        // 4. Collect the results
+                        let output_data = fs::read(output_path).context("reading output data from file")?;
+                        let res = serde_json::from_slice(&output_data).context("deserializing output data")?;
+                        Ok(res)
+                    }).await?
+                }
             }
+        } else {
+            quote! {
+                #fn_vis async fn #fn_ident(#fn_args) -> std::result::Result<#return_type, gfaas::Error> {
+                    use gfaas::__private::anyhow::{self, Context, anyhow};
+                    use gfaas::__private::futures::future::{select, FutureExt};
+                    use gfaas::__private::tempfile::tempdir;
+                    use gfaas::__private::package::Package;
+                    use gfaas::__private::yarapi::{commands, requestor::{self, CommandList, Image::Wasm, Requestor}};
+                    use gfaas::__private::ya_agreement_utils::{constraints, ConstraintKey, Constraints};
+                    use gfaas::__private::serde_json;
+                    use std::{fs, env, path::{Path, PathBuf}, collections::HashMap};
 
-            let run_type = match std::env::var("GFAAS_RUN") {
-                Ok(var) => if var == "local" { RunType::Local } else { RunType::Golem },
-                Err(_) => RunType::Golem,
-            };
-
-            if let RunType::Local = run_type {
-                use gfaas::__private::anyhow::{anyhow, Context};
-                use gfaas::__private::tokio::task;
-                use gfaas::__private::tempfile::tempdir;
-                use gfaas::__private::ya_runtime_wasi;
-                use gfaas::__private::package::Package;
-                use gfaas::__private::serde_json;
-                use std::{fs, env, path::PathBuf};
-
-                task::spawn_blocking(move || {
-                    // 0. Create temp workspace
+                    // 1. Create temp workspace
                     let workspace = tempdir().context("creating temp dir")?;
 
-                    // 1. Prepare zip archive
+                    // 2. Prepare package
                     let exe_path = env::current_exe().context("extracting path to the current exe")?;
                     let parent = exe_path
                         .parent()
@@ -217,106 +290,42 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
                     let package_path = workspace.path().join("pkg.zip");
                     let mut package = Package::new();
                     package.add_module_from_path(wasm).context("adding Wasm module from path")?;
-                    package.write(&package_path).context("saving Yagna zip package to file")?;
+                    package.write(&package_path).context("saving Yagna zig package to file")?;
 
-                    // 2. Deploy
-                    ya_runtime_wasi::deploy(workspace.path(), &package_path).context("deploying Yagna package")?;
-                    ya_runtime_wasi::start(workspace.path()).context("executing Yagna start command")?;
+                    // 3. Prepare workspace
+                    let output_path = workspace.path().join("out");
 
-                    let deployment = ya_runtime_wasi::DeployFile::load(workspace.path()).context("loading deployed Yagna package")?;
-                    let vol = deployment
-                        .vols()
-                        .find(|vol| vol.path.starts_with("/workdir"))
-                        .map(|vol| workspace.path().join(&vol.name))
-                        .context("extracting workdir path from Yagna package")?;
+                    #(#remote_input_args)*
 
-                    let output_file_name = "out".to_owned();
-                    let output_path = vol.join(&output_file_name);
+                    // 4. Run
+                    Requestor::new(
+                        "custom",
+                        Wasm((0, 0, 0).into()),
+                        requestor::Package::Archive(package_path)
+                    )
+                    .with_subnet(#subnet)
+                    .with_max_budget_ngnt(#budget)
+                    .with_timeout(std::time::Duration::from_secs(#timeout))
+                    .with_constraints(constraints![
+                        "golem.inf.mem.gib" > 0.5,
+                        "golem.inf.storage.gib" > 1.0,
+                    ])
+                    .with_tasks(vec![commands! {
+                        #(#remote_input_paths)*
+                        run(module_name, #(#remote_input_names),*, "/workdir/out");
+                        download("/workdir/out", &output_path);
+                    }].into_iter())
+                    .on_completed(|activity_id, output| {
+                        println!("{} => {:#?}", activity_id, output);
+                    })
+                    .run()
+                    .await?;
+                    // .context("running task on Yagna")?;
 
-                    #(#local_input_args)*
-
-                    // 3. Run
-                    ya_runtime_wasi::run(
-                        workspace.path(),
-                        &module_name,
-                        vec![
-                            #(#local_input_paths)*
-                            ["/workdir/", &output_file_name].join(""),
-                        ],
-                    ).context("executing Yagna run command")?;
-
-                    // 4. Collect the results
-                    let output_data = fs::read(output_path).context("reading output data from file")?;
+                    let output_data = fs::read(&output_path).context("reading output data from file")?;
                     let res = serde_json::from_slice(&output_data).context("deserializing output data")?;
                     Ok(res)
-                }).await?
-            } else {
-                use gfaas::__private::anyhow::{self, Context, anyhow};
-                use gfaas::__private::dotenv;
-                use gfaas::__private::futures::future::{select, FutureExt};
-                use gfaas::__private::tokio::task;
-                use gfaas::__private::tempfile::tempdir;
-                use gfaas::__private::package::Package;
-                use gfaas::__private::yarapi::{commands, requestor::{self, CommandList, Image::WebAssembly, Requestor}};
-                use gfaas::__private::ya_agreement_utils::{constraints, ConstraintKey, Constraints};
-                use gfaas::__private::serde_json;
-                use std::{fs, env, path::{Path, PathBuf}, collections::HashMap};
-
-                // 0. Load env vars
-                dotenv::from_path(Path::new(#datadir).join(".env")).context("datadir not found")?;
-
-                // 1. Create temp workspace
-                let workspace = tempdir().context("creating temp dir")?;
-
-                // 2. Prepare package
-                let exe_path = env::current_exe().context("extracting path to the current exe")?;
-                let parent = exe_path
-                    .parent()
-                    .ok_or_else(|| anyhow!("path to the current exe without parent: '{}'", exe_path.display()))?;
-                let module_name = format!("{}", stringify!(#fn_ident));
-                let wasm = parent.join(format!("{}.wasm", module_name));
-                let package_path = workspace.path().join("pkg.zip");
-                let mut package = Package::new();
-                package.add_module_from_path(wasm).context("adding Wasm module from path")?;
-                package.write(&package_path).context("saving Yagna zig package to file")?;
-
-                // 3. Prepare workspace
-                let output_path = workspace.path().join("out");
-
-                #(#remote_input_args)*
-
-                // 4. Run
-                let requestor = Requestor::new(
-                    "custom",
-                    WebAssembly((0, 1, 0).into()),
-                    requestor::Package::Archive(package_path)
-                )
-                .with_max_budget_gnt(#budget)
-                .with_constraints(constraints![
-                    "golem.inf.mem.gib" > 0.5,
-                    "golem.inf.storage.gib" > 1.0,
-                    "golem.com.pricing.model" == "linear",
-                ])
-                .with_tasks(vec![commands! {
-                    #(#remote_input_paths)*
-                    run(module_name, #(#remote_input_names),*, "/workdir/out");
-                    download("/workdir/out", &output_path);
-                }].into_iter())
-                .on_completed(|outputs: HashMap<String, String>| {
-                    println!("{:#?}", outputs);
-                })
-                .run();
-
-                let ctrl_c = actix_rt::signal::ctrl_c().then(|r| async move {
-                    match r {
-                        Ok(_) => Err(anyhow!("interrupted: ctrl-c detected!")),
-                        Err(e) => Err(anyhow::Error::from(e)),
-                    }
-                });
-                select(requestor.boxed_local(), ctrl_c.boxed_local()).await.into_inner().0.context("running task on Yagna")?;
-                let output_data = fs::read(&output_path).context("reading output data from file")?;
-                let res = serde_json::from_slice(&output_data).context("deserializing output data")?;
-                Ok(res)
+                }
             }
         }
     };

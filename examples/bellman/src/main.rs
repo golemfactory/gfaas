@@ -15,7 +15,7 @@ use std::{
 };
 use structopt::StructOpt;
 
-#[remote_fn(datadir = "/Users/kubkon/dev/yagna/ya-req", budget = 1000)]
+#[remote_fn(budget = 1000, timeout = 900, subnet = "devnet-alpha.2")]
 fn generate_proof_on_golem(params: Vec<u8>, preimage: Vec<u8>) -> Vec<u8> {
     use bellman::{
         gadgets::{
@@ -282,6 +282,7 @@ async fn verify_proof<S: AsRef<str>, P1: AsRef<Path>, P2: AsRef<Path>>(
 
 #[actix_rt::main]
 async fn main() -> anyhow::Result<()> {
+    pretty_env_logger::init();
     let opt = Opt::from_args();
     match opt {
         Opt::GenerateParams => generate_params().await?,
