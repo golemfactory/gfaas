@@ -228,6 +228,39 @@
 <span id="227">227</span>
 <span id="228">228</span>
 <span id="229">229</span>
+<span id="230">230</span>
+<span id="231">231</span>
+<span id="232">232</span>
+<span id="233">233</span>
+<span id="234">234</span>
+<span id="235">235</span>
+<span id="236">236</span>
+<span id="237">237</span>
+<span id="238">238</span>
+<span id="239">239</span>
+<span id="240">240</span>
+<span id="241">241</span>
+<span id="242">242</span>
+<span id="243">243</span>
+<span id="244">244</span>
+<span id="245">245</span>
+<span id="246">246</span>
+<span id="247">247</span>
+<span id="248">248</span>
+<span id="249">249</span>
+<span id="250">250</span>
+<span id="251">251</span>
+<span id="252">252</span>
+<span id="253">253</span>
+<span id="254">254</span>
+<span id="255">255</span>
+<span id="256">256</span>
+<span id="257">257</span>
+<span id="258">258</span>
+<span id="259">259</span>
+<span id="260">260</span>
+<span id="261">261</span>
+<span id="262">262</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="doccomment">//! This crate allows you to distributed heavy-workload functions to the Golem Network (or any</span>
 <span class="doccomment">//! other compatible backend when support for it is added in the future).</span>
@@ -239,7 +272,7 @@
 <span class="doccomment">//! ```toml</span>
 <span class="doccomment">//! # Cargo.toml</span>
 <span class="doccomment">//! [dependencies]</span>
-<span class="doccomment">//! gfaas = &quot;0.1&quot;</span>
+<span class="doccomment">//! gfaas = &quot;0.3&quot;</span>
 <span class="doccomment">//! ```</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! You can now annotate some heavy-workload function to be distributed on the Golem Network</span>
@@ -305,6 +338,39 @@
 <span class="doccomment">//! Furthermore, the input and output arguments of your function have to be serializable, and</span>
 <span class="doccomment">//! so they are expected to derive `serde::Serialize` and `serde::Deserialize` traits.</span>
 <span class="doccomment">//!</span>
+<span class="doccomment">//! ### Specifying Golem&#39;s configuration parameters</span>
+<span class="doccomment">//! </span>
+<span class="doccomment">//! You can currently set the following configuration parameters directly via `gfaas::remote_fn`</span>
+<span class="doccomment">//! attribute:</span>
+<span class="doccomment">//! </span>
+<span class="doccomment">//! * (maximum) budget in NGNT (defaults to 100):</span>
+<span class="doccomment">//! </span>
+<span class="doccomment">//! ```rust,ignore</span>
+<span class="doccomment">//! #[remote_fn(budget = 100)]</span>
+<span class="doccomment">//! fn hello(input: String) -&gt; String;</span>
+<span class="doccomment">//! ```</span>
+<span class="doccomment">//! </span>
+<span class="doccomment">//! * timeout in seconds (defaults to 10 minutes):</span>
+<span class="doccomment">//! </span>
+<span class="doccomment">//! ```rust,ignore</span>
+<span class="doccomment">//! #[remote_fn(timeout = 600)]</span>
+<span class="doccomment">//! fn hello(input: String) -&gt; String;</span>
+<span class="doccomment">//! ```</span>
+<span class="doccomment">//! </span>
+<span class="doccomment">//! * subnet tag (defaults to &quot;devnet-alpha.2&quot;):</span>
+<span class="doccomment">//! </span>
+<span class="doccomment">//! ```rust,ignore</span>
+<span class="doccomment">//! #[remote_fn(subnet = &quot;devnet-alpha.2&quot;)]</span>
+<span class="doccomment">//! fn hello(input: String) -&gt; String;</span>
+<span class="doccomment">//! ```</span>
+<span class="doccomment">//! </span>
+<span class="doccomment">//! Of course, nobody stops you from setting any number of parameters at once</span>
+<span class="doccomment">//! </span>
+<span class="doccomment">//! ```rust,ignore</span>
+<span class="doccomment">//! #[remote_fn(budget = 10, subnet = &quot;my_subnet&quot;)]</span>
+<span class="doccomment">//! fn hello(input: String) -&gt; String;</span>
+<span class="doccomment">//! ```</span>
+<span class="doccomment">//!</span>
 <span class="doccomment">//! ## Notes about `gfaas` build tool and adding dependecies for your functions</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! The reason that a custom wrapper around `cargo` is needed, is because the function</span>
@@ -329,17 +395,17 @@
 <span class="doccomment">//! ```</span>
 <span class="doccomment">//!</span>
 <span class="doccomment">//! ## Notes on running your app locally (for testing)</span>
-<span class="doccomment">//!</span>
+<span class="doccomment">//! </span>
 <span class="doccomment">//! It is well known that prior to launching our app on some distributed network of nodes, it</span>
 <span class="doccomment">//! is convenient to first test the app locally in search of bugs and errors. This is also</span>
-<span class="doccomment">//! possible with `gfaas`. In order to force your app to run locally, simply pass in</span>
-<span class="doccomment">//! `GFAAS_RUN=local` env variable. For example, to run locally using the `gfaas` build tool</span>
-<span class="doccomment">//! you would</span>
-<span class="doccomment">//!</span>
-<span class="doccomment">//! ```sh</span>
-<span class="doccomment">//! GFAAS_RUN=local gfaas run</span>
+<span class="doccomment">//! possible with `gfaas`. In order to force your app to run locally, simply pass</span>
+<span class="doccomment">//! `run_local=true` as argument to `gfaas::remote_fn` attribute</span>
+<span class="doccomment">//! </span>
+<span class="doccomment">//! ```rust,ignore</span>
+<span class="doccomment">//! #[remote_fn(run_local = true)]</span>
+<span class="doccomment">//! fn hello(input: String) -&gt; String;</span>
 <span class="doccomment">//! ```</span>
-<span class="doccomment">//!</span>
+<span class="doccomment">//! </span>
 <span class="doccomment">//! This will spawn all of your annotated functions in separate threads on your machine locally,</span>
 <span class="doccomment">//! so you can verify that everything works as expected prior to launching the tasks on the</span>
 <span class="doccomment">//! Golem Network.</span>
