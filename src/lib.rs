@@ -8,7 +8,7 @@
 //! ```toml
 //! # Cargo.toml
 //! [dependencies]
-//! gfaas = "0.1"
+//! gfaas = "0.3"
 //! ```
 //!
 //! You can now annotate some heavy-workload function to be distributed on the Golem Network
@@ -74,6 +74,39 @@
 //! Furthermore, the input and output arguments of your function have to be serializable, and
 //! so they are expected to derive `serde::Serialize` and `serde::Deserialize` traits.
 //!
+//! ### Specifying Golem's configuration parameters
+//! 
+//! You can currently set the following configuration parameters directly via `gfaas::remote_fn`
+//! attribute:
+//! 
+//! * (maximum) budget in NGNT (defaults to 100):
+//! 
+//! ```rust,ignore
+//! #[remote_fn(budget = 100)]
+//! fn hello(input: String) -> String;
+//! ```
+//! 
+//! * timeout in seconds (defaults to 10 minutes):
+//! 
+//! ```rust,ignore
+//! #[remote_fn(timeout = 600)]
+//! fn hello(input: String) -> String;
+//! ```
+//! 
+//! * subnet tag (defaults to "devnet-alpha.2"):
+//! 
+//! ```rust,ignore
+//! #[remote_fn(subnet = "devnet-alpha.2")]
+//! fn hello(input: String) -> String;
+//! ```
+//! 
+//! Of course, nobody stops you from setting any number of parameters at once
+//! 
+//! ```rust,ignore
+//! #[remote_fn(budget = 10, subnet = "my_subnet")]
+//! fn hello(input: String) -> String;
+//! ```
+//!
 //! ## Notes about `gfaas` build tool and adding dependecies for your functions
 //!
 //! The reason that a custom wrapper around `cargo` is needed, is because the function
@@ -98,17 +131,17 @@
 //! ```
 //!
 //! ## Notes on running your app locally (for testing)
-//!
+//! 
 //! It is well known that prior to launching our app on some distributed network of nodes, it
 //! is convenient to first test the app locally in search of bugs and errors. This is also
-//! possible with `gfaas`. In order to force your app to run locally, simply pass in
-//! `GFAAS_RUN=local` env variable. For example, to run locally using the `gfaas` build tool
-//! you would
-//!
-//! ```sh
-//! GFAAS_RUN=local gfaas run
+//! possible with `gfaas`. In order to force your app to run locally, simply pass
+//! `run_local=true` as argument to `gfaas::remote_fn` attribute
+//! 
+//! ```rust,ignore
+//! #[remote_fn(run_local = true)]
+//! fn hello(input: String) -> String;
 //! ```
-//!
+//! 
 //! This will spawn all of your annotated functions in separate threads on your machine locally,
 //! so you can verify that everything works as expected prior to launching the tasks on the
 //! Golem Network.

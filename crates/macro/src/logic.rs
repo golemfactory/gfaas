@@ -161,7 +161,7 @@ pub(super) fn remote_fn_impl(attrs: GwasmAttrs, f: GwasmFn, preserved: TokenStre
     let return_type = validate_extract_return_type(&f.ret);
 
     let run_local = params.run_local.unwrap_or(false);
-    let budget = params.budget.unwrap_or(5);
+    let budget = params.budget.unwrap_or(100);
     let timeout = params.timeout.unwrap_or(10 * 60);
     let subnet = params.subnet.unwrap_or("devnet-alpha.2".to_string());
 
